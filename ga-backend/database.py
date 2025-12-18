@@ -10,7 +10,7 @@ supabase_url = os.getenv("SUPABASE_URL")
 supabase_key = os.getenv("SUPABASE_KEY")
 
 if not supabase_url or not supabase_key:
-    raise Exception("SUPABASE_URL and SUPABASE_KEY must be set in .env file")
+    raise Exception("SUPABASE_URL and SUPABASE_KEY must be set as environment variables. If running locally, set them in a .env file. If deploying, set them in your deployment environment.")
 
 supabase: Client = create_client(supabase_url, supabase_key)
 
