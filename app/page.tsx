@@ -54,7 +54,8 @@ export default function CalendarApp() {
       
       console.log("Fetching latest approved generated schedule...")
       // Fetch latest approved generated schedule
-      const schedulesResponse = await fetch("http://localhost:8000/api/schedules")
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL
+      const schedulesResponse = await fetch(`${apiUrl}/api/schedules`)
       const schedulesResult = await schedulesResponse.json()
       
       if (schedulesResult.success && schedulesResult.data && schedulesResult.data.length > 0) {
@@ -66,7 +67,7 @@ export default function CalendarApp() {
           console.log(`Using approved schedule ID: ${latestSchedule.id}`)
           
           // Fetch the schedule details
-          const detailsResponse = await fetch(`http://localhost:8000/api/schedules/${latestSchedule.id}`)
+          const detailsResponse = await fetch(`${apiUrl}/api/schedules/${latestSchedule.id}`)
           const detailsResult = await detailsResponse.json()
           
           console.log("Schedule details response:", detailsResult)
@@ -131,7 +132,7 @@ export default function CalendarApp() {
   }
 
   const handleDeleteEvent = (eventId: string) => {
-    setEvents(events.filter((e) => e.id !== eventId))
+    setEvents(events.filter((e: CalendarEvent) => e.id !== eventId))
     setSelectedEvent(null)
   }
 
@@ -253,14 +254,14 @@ export default function CalendarApp() {
                     <div key={date.toISOString()} className="flex-1 divide-y divide-border/50">
                       {Array.from({ length: 24 }, (_, i) => i).map((hour) => {
                         // Find events for this time slot
-                        const eventsAtTime = events.filter((event) => {
+                        const eventsAtTime = events.filter((event: CalendarEvent) => {
                           const eventDay = event.startTime.getDay()
                           const eventHour = event.startTime.getHours()
                           return eventDay === dayOfWeek && eventHour === hour
                         })
 
                         const event = eventsAtTime[0]
-                        const isInSpan = eventsAtTime.some((e) => {
+                        const isInSpan = eventsAtTime.some((e: CalendarEvent) => {
                           const eventHour = e.startTime.getHours()
                           const eventEndHour = e.endTime.getHours()
                           return hour > eventHour && hour < eventEndHour

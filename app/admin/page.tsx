@@ -164,7 +164,7 @@ export default function AdminPage() {
         return
       }
 
-      const updatedProfessors = professors.filter((p) => p.id !== id)
+      const updatedProfessors = professors.filter((p: Professor) => p.id !== id)
       setProfessors(updatedProfessors)
       setTimetableSlots([])
       setSelectedProfessor(updatedProfessors[0] || null)
@@ -245,7 +245,7 @@ export default function AdminPage() {
         return
       }
 
-      setTimetableSlots(timetableSlots.map((slot) => (slot.id === id ? { id, ...updates } : slot)))
+      setTimetableSlots(timetableSlots.map((slot: TimetableSlot) => (slot.id === id ? { id, ...updates } : slot)))
     } catch (error) {
       console.error('Error updating timetable slot:', error)
       alert('An unexpected error occurred while updating the timetable slot')
@@ -270,7 +270,7 @@ export default function AdminPage() {
         return
       }
 
-      setTimetableSlots(timetableSlots.filter((slot) => slot.id !== id))
+      setTimetableSlots(timetableSlots.filter((slot: TimetableSlot) => slot.id !== id))
     } catch (error) {
       console.error('Error deleting timetable slot:', error)
       alert('An unexpected error occurred while deleting the timetable slot')
@@ -281,26 +281,24 @@ export default function AdminPage() {
     router.push("/")
   }
 
+// ...existing code...
   const handleGenerateSchedule = async () => {
-    setGeneratingSchedule(true)
-    setScheduleError(null)
-    setScheduleResult(null)
-
+    setGeneratingSchedule(true);
+    setScheduleError(null);
+    setScheduleResult(null);
     try {
-      console.log("Attempting to connect to backend at http://localhost:8000/api/generate-schedule")
-      const response = await fetch("http://localhost:8000/api/generate-schedule", {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+      console.log(`Attempting to connect to backend at ${apiUrl}/api/generate-schedule`);
+      const response = await fetch(`${apiUrl}/api/generate-schedule`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-      })
-
-      console.log("Response status:", response.status)
-      const data = await response.json()
-      console.log("Response data:", data)
-
+      });
+      console.log("Response status:", response.status);
+      const data = await response.json();
+      console.log("Response data:", data);
       if (data.success) {
-        // API returns flat structure: { success, schedule_id, fitness_score, hard_violations, soft_score }
         setScheduleResult({
           id: data.schedule_id,
           fitness_score: data.fitness_score,
@@ -308,48 +306,45 @@ export default function AdminPage() {
           soft_constraint_score: data.soft_score,
           status: "pending",
           notes: data.message || "Generated successfully"
-        })
+        });
       } else {
-        setScheduleError(data.message || "Failed to generate schedule")
+        setScheduleError(data.message || "Failed to generate schedule");
       }
     } catch (err) {
-      console.error("Error connecting to backend:", err)
-      setScheduleError("Failed to connect to the scheduling service. Make sure the backend is running.")
+      console.error("Error connecting to backend:", err);
+      setScheduleError("Failed to connect to the scheduling service. Make sure the backend is running.");
     } finally {
-      setGeneratingSchedule(false)
+      setGeneratingSchedule(false);
     }
   }
-
+// ...existing code...
   const handleApproveSchedule = async () => {
-    if (!scheduleResult) return
-
-    setGeneratingSchedule(true)
-    setScheduleError(null)
-
+    if (!scheduleResult) return;
+    setGeneratingSchedule(true);
+    setScheduleError(null);
     try {
-      const response = await fetch(`http://localhost:8000/api/schedules/${scheduleResult.id}/approve`, {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+      const response = await fetch(`${apiUrl}/api/schedules/${scheduleResult.id}/approve`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-      })
-
-      const data = await response.json()
-
+      });
+      const data = await response.json();
       if (data.success) {
-        alert("Schedule approved and applied to timetable!")
-        setScheduleResult({ ...scheduleResult, status: "approved" })
+        alert("Schedule approved and applied to timetable!");
+        setScheduleResult({ ...scheduleResult, status: "approved" });
         // Refresh timetable slots
         if (selectedProfessor) {
-          fetchTimetableSlots(selectedProfessor.id)
+          fetchTimetableSlots(selectedProfessor.id);
         }
       } else {
-        setScheduleError(data.message || "Failed to approve schedule")
+        setScheduleError(data.message || "Failed to approve schedule");
       }
     } catch (err) {
-      setScheduleError("Failed to approve schedule")
+      setScheduleError("Failed to approve schedule");
     } finally {
-      setGeneratingSchedule(false)
+      setGeneratingSchedule(false);
     }
   }
 
