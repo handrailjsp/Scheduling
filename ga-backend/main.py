@@ -10,7 +10,11 @@ app = FastAPI(title="Timetable GA API", version="1.0.0")
 # CORS middleware to allow Next.js to call this API
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],  # Your Next.js app URL
+    allow_origins=[
+        "http://localhost:3000",  # Local development
+        "https://scheduling-z619.onrender.com",  # Backend itself (if needed)
+        "https://scheduling-s69x.vercel.app/"  # Replace with your deployed frontend URL
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
