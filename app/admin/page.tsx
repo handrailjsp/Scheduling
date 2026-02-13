@@ -27,6 +27,18 @@ export interface TimetableSlot {
   needsAC?: boolean
 }
 
+export interface ScheduleResult {
+  id: number
+  fitness_score: number
+  hard_constraint_violations: number
+  soft_constraint_score: number
+  gini_workload?: number
+  gini_room_usage?: number
+  gini_ac_access?: number
+  status: string
+  notes: string
+}
+
 export default function AdminPage() {
   const router = useRouter()
   const [professors, setProfessors] = useState<Professor[]>([])
@@ -36,7 +48,7 @@ export default function AdminPage() {
   const [currentDate, setCurrentDate] = useState(new Date())
   const [loading, setLoading] = useState(true)
   const [generatingSchedule, setGeneratingSchedule] = useState(false)
-  const [scheduleResult, setScheduleResult] = useState<any>(null)
+  const [scheduleResult, setScheduleResult] = useState<ScheduleResult | null>(null)
   const [scheduleError, setScheduleError] = useState<string | null>(null)
 
   // Fetch professors on mount
@@ -304,6 +316,9 @@ export default function AdminPage() {
           fitness_score: data.fitness_score,
           hard_constraint_violations: data.hard_violations,
           soft_constraint_score: data.soft_score,
+          gini_workload: data.gini_workload,
+          gini_room_usage: data.gini_room_usage,
+          gini_ac_access: data.gini_ac_access,
           status: "pending",
           notes: data.message || "Generated successfully"
         });
@@ -434,11 +449,10 @@ export default function AdminPage() {
 
           {scheduleResult && (
             <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded p-3 space-y-2 text-xs">
-              <div className="flex items-start gap-2">
-                <CheckCircle className="h-4 w-4 text-green-500 flex-shrink-0 mt-0.5" />
-                <div className="flex-1">
-                  <p className="font-semibold text-green-800 dark:text-green-200 mb-1">Success!</p>
-                  <div className="grid grid-cols-2 gap-2">
+              <div className="flex items-start gap-2">2">Schedule Generated!</p>
+                  
+                  {/* Core Metrics */}
+                  <div className="grid grid-cols-2 gap-2 mb-2">
                     <div>
                       <p className="text-gray-600 dark:text-gray-400">Schedule ID</p>
                       <p className="font-semibold text-gray-900 dark:text-white">#{scheduleResult.id}</p>
@@ -447,6 +461,62 @@ export default function AdminPage() {
                       <p className="text-gray-600 dark:text-gray-400">Conflicts</p>
                       <p className="font-semibold text-gray-900 dark:text-white">
                         {scheduleResult.hard_constraint_violations}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Gini Coefficients */}
+                  {(scheduleResult.gini_workload !== undefined || 
+                    scheduleResult.gini_room_usage !== undefined || 
+                    scheduleResult.gini_ac_access !== undefined) && (
+                    <div className="border-t border-green-200 dark:border-green-700 pt-2 mt-2">
+                      <p className="text-gray-700 dark:text-gray-300 font-medium mb-1">📊 Fairness (Gini)</p>
+                      <div className="space-y-1">
+                        {scheduleResult.gini_workload !== undefined && (
+                          <div className="flex items-center justify-between">
+                            <span className="text-gray-600 dark:text-gray-400">Workload</span>
+                            <span className={`font-mono font-semibold ${
+                              scheduleResult.gini_workload < 0.2 ? 'text-green-600' :
+                              scheduleResult.gini_workload < 0.3 ? 'text-blue-600' :
+                              scheduleResult.gini_workload < 0.4 ? 'text-yellow-600' :
+                              'text-red-600'
+                            }`}>
+                              {scheduleResult.gini_workload.toFixed(3)}
+                            </span>
+                          </div>
+                        )}
+                        {scheduleResult.gini_room_usage !== undefined && (
+                          <div className="flex items-center justify-between">
+                            <span className="text-gray-600 dark:text-gray-400">Room Use</span>
+                            <span className={`font-mono font-semibold ${
+                              scheduleResult.gini_room_usage < 0.2 ? 'text-green-600' :
+                              scheduleResult.gini_room_usage < 0.3 ? 'text-blue-600' :
+                              scheduleResult.gini_room_usage < 0.4 ? 'text-yellow-600' :
+                              'text-red-600'
+                            }`}>
+                              {scheduleResult.gini_room_usage.toFixed(3)}
+                            </span>
+                          </div>
+                        )}
+                        {scheduleResult.gini_ac_access !== undefined && (
+                          <div className="flex items-center justify-between">
+                            <span className="text-gray-600 dark:text-gray-400">AC Access</span>
+                            <span className={`font-mono font-semibold ${
+                              scheduleResult.gini_ac_access < 0.2 ? 'text-green-600' :
+                              scheduleResult.gini_ac_access < 0.3 ? 'text-blue-600' :
+                              scheduleResult.gini_ac_access < 0.4 ? 'text-yellow-600' :
+                              'text-red-600'
+                            }`}>
+                              {scheduleResult.gini_ac_access.toFixed(3)}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                      <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-1">
+                        🟢 &lt;0.2 Excellent • 🔵 0.2-0.3 Good • 🟡 0.3-0.4 Moderate • 🔴 &gt;0.4 High
+                      </p>
+                    </div>
+                  )}{scheduleResult.hard_constraint_violations}
                       </p>
                     </div>
                   </div>

@@ -93,7 +93,10 @@ def generate_schedule():
             "schedule_id": result["schedule_id"],
             "fitness_score": result["fitness_score"],
             "hard_violations": result["hard_violations"],
-            "soft_score": result["soft_score"]
+            "soft_score": result["soft_score"],
+            "gini_workload": result.get("gini_workload", 0.0),
+            "gini_room_usage": result.get("gini_room_usage", 0.0),
+            "gini_ac_access": result.get("gini_ac_access", 0.0)
         }
     except Exception as e:
         import traceback

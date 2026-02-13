@@ -2,7 +2,15 @@
 
 ## Overview
 
-This backend service implements an AI-powered genetic algorithm to automatically generate optimized class schedules for a university timetabling system. The system considers professor preferences, room constraints (especially AC room availability), and scheduling conflicts to produce conflict-free timetables.
+This backend service implements an AI-powered genetic algorithm to automatically generate optimized class schedules for a university timetabling system. The system considers professor preferences, room constraints (especially AC room availability), scheduling conflicts, and **fairness metrics (Gini coefficients)** to produce conflict-free, equitable timetables.
+
+### Key Features
+- ✅ **Conflict-free scheduling** - No professor or room double-bookings
+- ❄️ **AC room optimization** - Smart allocation of limited AC rooms (322, 323, 324)
+- 🎯 **Professor preference matching** - Respects AC and time preferences
+- 📊 **Fairness tracking** - Gini coefficients for workload, room usage, and AC access equity
+- 🧬 **Advanced GA** - Tournament selection, elitism, adaptive mutation
+- 🔄 **Incremental optimization** - Preserves existing schedules, optimizes room assignments
 
 ## Technology Stack
 
@@ -48,6 +56,9 @@ The system uses the following main tables in Supabase:
 - `fitness_score` (DECIMAL): GA fitness score
 - `hard_constraint_violations` (INTEGER): Number of conflicts
 - `soft_constraint_score` (DECIMAL): Soft constraint score
+- `gini_workload` (DECIMAL): Workload distribution fairness (0=equal, 1=unequal)
+- `gini_room_usage` (DECIMAL): Room utilization fairness
+- `gini_ac_access` (DECIMAL): AC room access equity
 - `status` (TEXT): "pending" or "approved"
 - `notes` (TEXT): Generation metadata
 
@@ -88,7 +99,10 @@ Triggers the genetic algorithm to generate a new optimized schedule.
 {
   "success": true,
   "message": "Schedule generation completed",
-  "schedule_id": 18,
+  "schedule_id": 18,,
+  "gini_workload": 0.1523,
+  "gini_room_usage": 0.2145,
+  "gini_ac_access": 0.0987
   "fitness_score": 20500.0,
   "hard_violations": 0,
   "soft_score": 2000.0
@@ -212,7 +226,10 @@ Located in `.env` file:
 
 2. **Fitness Evaluation**
    - Calculate fitness score for each candidate schedule
-   - Fitness = (Hard Constraints × 10,000) + (Soft Constraints × 10)
+   - **Fitness = α × HardScore + β × SoftScore + γ × FairnessScore**
+     - α = 1000 (Hard constraints - no conflicts)
+     - β = 10 (Soft constraints - preferences)
+     - γ = 5 (Fairness - Gini coefficients)
    - Higher scores = better schedules
 
 3. **Selection**
@@ -249,6 +266,15 @@ Located in `.env` file:
   - -50 points: AC preference not matched (assigned to other room due to time conflict)
   - **Note**: Only 3 AC rooms available, so ~87% of AC requests can be satisfied
 - **Time Preferences**: Future implementation for preferred teaching hours
+
+#### Fairness Constraints (Optimization goals)
+- **Workload Balance**: Minimize Gini coefficient for teaching hours distribution
+- **Room Utilization**: Ensure all rooms used efficiently (low Gini)
+- **AC Access Equity**: Fair distribution of AC rooms among professors who prefer them
+- **Target**: Average Gini < 0.3 (Good equality)
+- **Bonus**: +5 × (1 - avg_gini) × 100 points for fairer schedules
+
+> 📊 **See [GINI_COEFFICIENT_GUIDE.md](GINI_COEFFICIENT_GUIDE.md) for comprehensive fairness metrics documentation**
 
 ### AC Room Prioritization
 

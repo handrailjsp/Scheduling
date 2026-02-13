@@ -69,12 +69,15 @@ def get_professor_constraints(professor_id=None):
     return response.data
 
 
-def save_generated_schedule(fitness_score, hard_violations, soft_score, notes=""):
-    """Save a new generated schedule and return its ID."""
+def save_generated_schedule(fitness_score, hard_violations, soft_score, gini_workload=0.0, gini_room_usage=0.0, gini_ac_access=0.0, notes=""):
+    """Save a new generated schedule with Gini coefficients and return its ID."""
     response = supabase.table("generated_schedules").insert({
         "fitness_score": fitness_score,
         "hard_constraint_violations": hard_violations,
         "soft_constraint_score": soft_score,
+        "gini_workload": gini_workload,
+        "gini_room_usage": gini_room_usage,
+        "gini_ac_access": gini_ac_access,
         "status": "pending",
         "notes": notes
     }).execute()

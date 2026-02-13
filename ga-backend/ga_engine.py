@@ -2,6 +2,7 @@ import random
 import os
 from dotenv import load_dotenv
 import database
+from collections import defaultdict
 
 load_dotenv()
 
@@ -247,13 +248,94 @@ def soft_constraint_score(chromosome, data, room_lookup=None):
     return score
 
 
+def calculate_gini_coefficient(values):
+    """
+    Calculate Gini coefficient for distribution fairness.
+    
+    Returns:
+        float: Gini coefficient (0 = perfect equality, 1 = perfect inequality)
+    
+    Interpretation:
+        0.0 - 0.2: Excellent equality
+        0.2 - 0.3: Good equality
+        0.3 - 0.4: Moderate inequality
+        0.4 - 0.5: High inequality
+        0.5+:      Very high inequality
+    """
+    if not values or len(values) == 0:
+        return 0.0
+    
+    # Handle all zeros case
+    if sum(values) == 0:
+        return 0.0
+    
+    sorted_values = sorted(values)
+    n = len(sorted_values)
+    
+    # Gini coefficient formula
+    cumsum = sum((i + 1) * val for i, val in enumerate(sorted_values))
+    gini = (2 * cumsum) / (n * sum(sorted_values)) - (n + 1) / n
+    
+    return max(0.0, min(1.0, gini))  # Clamp to [0, 1]
+
+
+def calculate_gini_metrics(chromosome, data):
+    """
+    Calculate multiple Gini coefficients for schedule fairness.
+    
+    Returns:
+        dict: {
+            'gini_workload': Gini for professor teaching hours distribution,
+            'gini_room_usage': Gini for room utilization,
+            'gini_ac_access': Gini for AC room access among AC-preferring professors
+        }
+    """
+    professor_hours = defaultdict(int)
+    room_usage = defaultdict(int)
+    ac_access = defaultdict(int)
+    
+    # Collect metrics from schedule
+    for gene in chromosome:
+        prof_id = gene["professor_id"]
+        room_id = gene["room_id"]
+        duration = gene.get("end_hour", gene["start_hour"] + 1) - gene["start_hour"]
+        
+        # Track professor workload (hours)
+        professor_hours[prof_id] += duration
+        
+        # Track room usage (number of classes)
+        room_usage[room_id] += 1
+        
+        # Track AC room access for professors who prefer AC
+        class_idx = chromosome.index(gene)
+        if class_idx < len(data["classes"]) and data["classes"][class_idx].get("prefers_ac", False):
+            room = next((r for r in data["rooms"] if r["id"] == room_id), None)
+            if room and room.get("has_ac", False):
+                ac_access[prof_id] += duration
+    
+    # Calculate Gini coefficients
+    gini_workload = calculate_gini_coefficient(list(professor_hours.values())) if professor_hours else 0.0
+    gini_room_usage = calculate_gini_coefficient(list(room_usage.values())) if room_usage else 0.0
+    gini_ac_access = calculate_gini_coefficient(list(ac_access.values())) if ac_access else 0.0
+    
+    return {
+        "gini_workload": round(gini_workload, 4),
+        "gini_room_usage": round(gini_room_usage, 4),
+        "gini_ac_access": round(gini_ac_access, 4)
+    }
+
+
 def calculate_fitness(chromosome, data, room_lookup=None):
     """Fitness = α × HardScore + β × SoftScore + γ × FairnessScore"""
     alpha, beta, gamma = 1000, 10, 5
     
     hard_score = hard_constraint_penalty(chromosome)
     soft_score = soft_constraint_score(chromosome, data, room_lookup)
-    fairness_score = 100  # Placeholder
+    
+    # Fairness score based on Gini coefficients (lower Gini = better)
+    gini_metrics = calculate_gini_metrics(chromosome, data)
+    avg_gini = (gini_metrics["gini_workload"] + gini_metrics["gini_room_usage"] + gini_metrics["gini_ac_access"]) / 3
+    fairness_score = (1.0 - avg_gini) * 100  # Convert to score (higher is better)
     
     fitness = alpha * hard_score + beta * soft_score + gamma * fairness_score
     return fitness
@@ -461,11 +543,33 @@ def run_genetic_algorithm():
         print("CRITICAL ERROR: Duplicate professor slots detected!")
         # Don't regenerate - just proceed with current best
     
+    # Calculate final Gini metrics for fairness reporting
+    final_gini_metrics = calculate_gini_metrics(best_schedule, data)
+    print(f"\n📊 Fairness Metrics (Gini Coefficients):")
+    print(f"   • Workload Distribution: {final_gini_metrics['gini_workload']:.4f}")
+    print(f"   • Room Usage: {final_gini_metrics['gini_room_usage']:.4f}")
+    print(f"   • AC Access Equity: {final_gini_metrics['gini_ac_access']:.4f}")
+    
+    # Interpret average Gini
+    avg_gini = (final_gini_metrics['gini_workload'] + final_gini_metrics['gini_room_usage'] + final_gini_metrics['gini_ac_access']) / 3
+    if avg_gini < 0.2:
+        fairness_rating = "Excellent"
+    elif avg_gini < 0.3:
+        fairness_rating = "Good"
+    elif avg_gini < 0.4:
+        fairness_rating = "Moderate"
+    else:
+        fairness_rating = "Needs Improvement"
+    print(f"   → Overall Fairness: {fairness_rating} (avg: {avg_gini:.4f})")
+    
     # Save to database
     schedule_id = database.save_generated_schedule(
         fitness_score=best_fitness,
         hard_violations=hard_violations,
         soft_score=soft_score,
+        gini_workload=final_gini_metrics['gini_workload'],
+        gini_room_usage=final_gini_metrics['gini_room_usage'],
+        gini_ac_access=final_gini_metrics['gini_ac_access'],
         notes=f"Generated after {generation} generations"
     )
     
@@ -480,5 +584,8 @@ def run_genetic_algorithm():
         "fitness_score": best_fitness,
         "hard_violations": hard_violations,
         "soft_score": soft_score,
+        "gini_workload": final_gini_metrics["gini_workload"],
+        "gini_room_usage": final_gini_metrics["gini_room_usage"],
+        "gini_ac_access": final_gini_metrics["gini_ac_access"],
         "generations": generation
     }

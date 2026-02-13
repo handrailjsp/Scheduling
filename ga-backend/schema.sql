@@ -46,6 +46,9 @@ CREATE TABLE generated_schedules (
     fitness_score DECIMAL(10, 2) NOT NULL,
     hard_constraint_violations INTEGER NOT NULL DEFAULT 0,
     soft_constraint_score DECIMAL(10, 2) NOT NULL DEFAULT 0,
+    gini_workload DECIMAL(10, 4) DEFAULT 0,
+    gini_room_usage DECIMAL(10, 4) DEFAULT 0,
+    gini_ac_access DECIMAL(10, 4) DEFAULT 0,
     status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
     generation_date TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     notes TEXT
