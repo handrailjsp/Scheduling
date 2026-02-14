@@ -150,12 +150,12 @@ def get_schedule_details(schedule_id):
 
 def approve_schedule(schedule_id):
     """
-    Approve a generated schedule (READ ONLY - does not modify timetable_slots).
-    The generated schedule is for viewing only.
+    Approve a generated schedule and APPLY it to the live timetable.
+    This REPLACES all existing timetable_slots with the new optimized schedule.
     """
     try:
         print(f"\n========================================")
-        print(f"APPROVE SCHEDULE CALLED: ID={schedule_id}")
+        print(f"APPLYING SCHEDULE: ID={schedule_id}")
         print(f"========================================\n")
         
         # Get the generated schedule slots
@@ -163,16 +163,45 @@ def approve_schedule(schedule_id):
         generated_slots = schedule_details["slots"]
         print(f"Generated schedule has {len(generated_slots)} slots")
         
-        print(f"⚠️  NOTE: Timetable slots are NOT modified. Generated schedule is for viewing only.")
+        # STEP 1: Clear existing timetable_slots
+        print("Clearing existing timetable slots...")
+        existing = supabase.table("timetable_slots").select("id").execute().data
+        print(f"  Found {len(existing)} existing slots")
         
-        # Mark schedule as approved
+        if existing:
+            # Delete all existing slots
+            supabase.table("timetable_slots").delete().neq("id", 0).execute()
+            print(f"  ✓ Cleared {len(existing)} old slots")
+        
+        # STEP 2: Insert new schedule into timetable_slots
+        print(f"\nInserting {len(generated_slots)} new slots...")
+        
+        new_timetable_slots = []
+        for slot in generated_slots:
+            new_slot = {
+                "professor_id": slot["professor_id"],
+                "day_of_week": slot["day_of_week"],
+                "hour": slot["start_hour"],
+                "end_hour": slot["end_hour"],
+                "subject": slot.get("subject", f"Course {slot['course_id']}"),
+                "room": str(slot["room_id"]),  # Convert room_id to string for room column
+                "needs_ac": slot["room_id"] in [322, 323, 324]  # Mark AC rooms
+            }
+            new_timetable_slots.append(new_slot)
+        
+        # Batch insert all new slots
+        result = supabase.table("timetable_slots").insert(new_timetable_slots).execute()
+        print(f"  ✓ Inserted {len(result.data)} new slots")
+        
+        # STEP 3: Mark schedule as approved
         supabase.table("generated_schedules").update({"status": "approved"}).eq("id", schedule_id).execute()
         
-        print(f"✓ Schedule {schedule_id} marked as approved (view-only)")
+        print(f"\n✅ SUCCESS: Schedule {schedule_id} is now LIVE!")
+        print(f"========================================\n")
         
         return {
-            "slots_updated": 0,
-            "message": "Schedule approved for viewing. Timetable slots unchanged."
+            "slots_updated": len(new_timetable_slots),
+            "message": f"Schedule applied! {len(new_timetable_slots)} slots now live."
         }
         
     except Exception as e:

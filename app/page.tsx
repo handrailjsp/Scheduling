@@ -120,7 +120,57 @@ export default function CalendarApp() {
         }
       }
       
-      console.log("No approved schedule found, calendar will be empty")
+      // Fallback: If no approved generated schedule, try fetching from timetable_slots
+      console.log("No approved generated schedule found, trying timetable_slots...")
+      try {
+        const timetableResponse = await fetch(`${apiUrl}/api/timetable`)
+        const timetableResult = await timetableResponse.json()
+        
+        if (timetableResult.success && timetableResult.data && timetableResult.data.length > 0) {
+          const slots = timetableResult.data
+          console.log(`Using ${slots.length} slots from live timetable`)
+          
+          // Filter AC rooms
+          const AC_ROOMS = ['322', '323', '324']
+          const acSlots = slots.filter((slot: any) => AC_ROOMS.includes(slot.room))
+          
+          // Convert to calendar events
+          const calendarEvents: CalendarEvent[] = acSlots.map((slot: any, index: number) => {
+            const baseDate = new Date()
+            const dayOffset = slot.day_of_week - baseDate.getDay()
+            const eventDate = new Date(baseDate)
+            eventDate.setDate(baseDate.getDate() + dayOffset)
+            
+            const startTime = new Date(eventDate)
+            startTime.setHours(slot.hour, 0, 0, 0)
+            
+            const endTime = new Date(eventDate)
+            endTime.setHours(slot.end_hour, 0, 0, 0)
+            
+            const colors = [
+              "bg-blue-500", "bg-purple-500", "bg-green-500", "bg-yellow-500",
+              "bg-red-500", "bg-pink-500", "bg-indigo-500", "bg-teal-500"
+            ]
+            const color = colors[slot.professor_id % colors.length]
+            
+            return {
+              id: slot.id.toString(),
+              title: slot.professors?.name || `Professor ${slot.professor_id}`,
+              description: `${slot.subject || "Course"} - Room ${slot.room}`,
+              startTime,
+              endTime,
+              color
+            }
+          })
+          
+          setEvents(calendarEvents)
+          return
+        }
+      } catch (error) {
+        console.error("Error fetching timetable_slots:", error)
+      }
+      
+      console.log("No schedule data found, calendar will be empty")
       setEvents([])
     } catch (error) {
       console.error("Error fetching schedule:", error)
