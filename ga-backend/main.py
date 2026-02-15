@@ -13,7 +13,8 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:3000",  # Local development
         "https://scheduling-z619.onrender.com",  # Backend itself (if needed)
-        "https://scheduling-s69x.vercel.app"  # Deployed frontend URL (no trailing slash)
+        "https://scheduling-s69x.vercel.app",  # Deployed frontend URL (no trailing slash)
+        "https://scheduling-s69x-a1z1qa0r4-joachimmsp-gmailcoms-projects.vercel.app"
     ],
     allow_credentials=True,
     allow_methods=["*"],
