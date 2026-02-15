@@ -571,7 +571,7 @@ export default function AdminPage() {
                   size="sm"
                   className="w-full bg-green-600 hover:bg-green-700 text-white"
                 >
-                  {generatingSchedule ? (
+                 {generatingSchedule ? (
                     <>
                       <Loader2 className="mr-2 h-3 w-3 animate-spin" />
                       Approving...
@@ -584,14 +584,17 @@ export default function AdminPage() {
                   )}
                 </Button>
               )}
-                </Button>
-              )}
             </div>
           )}
         </div>
       </div>
 
-      {showModal && <ProfessorFormModal onSubmit={handleAddProfessor} onClose={() => setShowModal(false)} />}
+      {showModal && (
+        <ProfessorFormModal 
+          onSubmit={handleAddProfessor} 
+          onClose={() => setShowModal(false)} 
+        />
+      )}
     </div>
   )
 }
