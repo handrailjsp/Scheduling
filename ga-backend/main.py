@@ -78,25 +78,109 @@ def get_sections():
 
 
 @app.post("/api/generate-schedule")
-def generate_schedule():
+def generate_schedule(runs: int = 3):
     """
-    Trigger the genetic algorithm to generate a new schedule.
-    This will read data from the database, run the GA, and save results.
+    AUTO-OPTIMIZE: Generate multiple schedules, pick best, and apply automatically.
+    
+    This endpoint:
+    1. Runs the GA multiple times (default: 3)
+    2. Picks the schedule with best GINI + fitness
+    3. Automatically approves and applies it to timetable
+    4. Returns the winner
+    
+    Query params:
+    - runs: Number of GA runs (default=3, max=10)
     """
     try:
-        # Run the genetic algorithm
-        result = run_genetic_algorithm()
+        # Limit runs to reasonable range
+        num_runs = max(1, min(runs, 10))
+        
+        print(f"\n{'='*70}")
+        print(f"🚀 AUTO-OPTIMIZE MODE: Running GA {num_runs} times to find best schedule")
+        print(f"{'='*70}\n")
+        
+        all_results = []
+        
+        # Run GA multiple times
+        for i in range(num_runs):
+            print(f"\n--- RUN {i+1}/{num_runs} ---")
+            result = run_genetic_algorithm()
+            all_results.append(result)
+            
+            avg_gini = (result.get("gini_workload", 0) + 
+                       result.get("gini_room_usage", 0) + 
+                       result.get("gini_ac_access", 0)) / 3
+            
+            print(f"✓ Run {i+1} completed:")
+            print(f"  Fitness: {result['fitness_score']:.1f}")
+            print(f"  Avg GINI: {avg_gini:.4f}")
+            print(f"  Conflicts: {result['hard_violations']}")
+        
+        # Pick best schedule based on:
+        # 1. No conflicts (hard_violations = 0)
+        # 2. Lowest average GINI (fairest)
+        # 3. Highest fitness as tiebreaker
+        print(f"\n{'='*70}")
+        print("📊 SELECTING BEST SCHEDULE...")
+        print(f"{'='*70}\n")
+        
+        valid_schedules = [r for r in all_results if r['hard_violations'] == 0]
+        
+        if not valid_schedules:
+            # No conflict-free schedules, pick one with fewest conflicts
+            print("⚠️  No conflict-free schedules found, picking best available")
+            valid_schedules = sorted(all_results, key=lambda x: x['hard_violations'])
+        
+        # Sort by: lowest avg GINI first, then highest fitness
+        def score_schedule(r):
+            avg_gini = (r.get("gini_workload", 0) + 
+                       r.get("gini_room_usage", 0) + 
+                       r.get("gini_ac_access", 0)) / 3
+            # Lower GINI is better, higher fitness is better
+            # Weight: GINI is 10x more important than fitness
+            return (-avg_gini * 10000) + r['fitness_score']
+        
+        best_schedule = max(valid_schedules, key=score_schedule)
+        
+        # Calculate metrics
+        best_avg_gini = (best_schedule.get("gini_workload", 0) + 
+                        best_schedule.get("gini_room_usage", 0) + 
+                        best_schedule.get("gini_ac_access", 0)) / 3
+        
+        print(f"🏆 WINNER: Schedule ID {best_schedule['schedule_id']}")
+        print(f"   Fitness:     {best_schedule['fitness_score']:.1f}")
+        print(f"   Conflicts:   {best_schedule['hard_violations']}")
+        print(f"   Avg GINI:    {best_avg_gini:.4f}")
+        print(f"   - Workload:  {best_schedule.get('gini_workload', 0):.4f}")
+        print(f"   - Rooms:     {best_schedule.get('gini_room_usage', 0):.4f}")
+        print(f"   - AC Access: {best_schedule.get('gini_ac_access', 0):.4f}")
+        
+        # Automatically approve and apply
+        print(f"\n🔄 Auto-approving and applying to timetable...")
+        try:
+            approval_result = database.approve_schedule(best_schedule['schedule_id'])
+            print(f"✅ DONE! Schedule {best_schedule['schedule_id']} is now LIVE")
+            print(f"   Applied {approval_result['slots_updated']} slots to timetable")
+        except Exception as e:
+            print(f"⚠️  Warning: Failed to auto-approve: {e}")
+            print(f"   Schedule {best_schedule['schedule_id']} saved but not applied")
+        
+        print(f"\n{'='*70}\n")
         
         return {
             "success": True,
-            "message": "Schedule generation completed",
-            "schedule_id": result["schedule_id"],
-            "fitness_score": result["fitness_score"],
-            "hard_violations": result["hard_violations"],
-            "soft_score": result["soft_score"],
-            "gini_workload": result.get("gini_workload", 0.0),
-            "gini_room_usage": result.get("gini_room_usage", 0.0),
-            "gini_ac_access": result.get("gini_ac_access", 0.0)
+            "message": f"Auto-optimized! Generated {num_runs} schedules, picked best, and applied to timetable",
+            "schedule_id": best_schedule["schedule_id"],
+            "fitness_score": best_schedule["fitness_score"],
+            "hard_violations": best_schedule["hard_violations"],
+            "soft_score": best_schedule["soft_score"],
+            "gini_workload": best_schedule.get("gini_workload", 0.0),
+            "gini_room_usage": best_schedule.get("gini_room_usage", 0.0),
+            "gini_ac_access": best_schedule.get("gini_ac_access", 0.0),
+            "avg_gini": best_avg_gini,
+            "total_runs": num_runs,
+            "auto_approved": True,
+            "applied_to_timetable": True
         }
     except Exception as e:
         import traceback

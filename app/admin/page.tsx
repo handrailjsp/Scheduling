@@ -300,16 +300,20 @@ export default function AdminPage() {
     setScheduleResult(null);
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-      console.log(`Attempting to connect to backend at ${apiUrl}/api/generate-schedule`);
-      const response = await fetch(`${apiUrl}/api/generate-schedule`, {
+      console.log(`🚀 AUTO-OPTIMIZE: Generating multiple schedules and picking best...`);
+      
+      // Auto-optimize: runs=3 means it generates 3 schedules and picks the best
+      const response = await fetch(`${apiUrl}/api/generate-schedule?runs=3`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
       });
+      
       console.log("Response status:", response.status);
       const data = await response.json();
       console.log("Response data:", data);
+      
       if (data.success) {
         setScheduleResult({
           id: data.schedule_id,
@@ -319,9 +323,18 @@ export default function AdminPage() {
           gini_workload: data.gini_workload,
           gini_room_usage: data.gini_room_usage,
           gini_ac_access: data.gini_ac_access,
-          status: "pending",
+          status: data.auto_approved ? "approved" : "pending",
           notes: data.message || "Generated successfully"
         });
+        
+        // If auto-approved, refresh the timetable to show new schedule
+        if (data.auto_approved && selectedProfessor) {
+          console.log("✅ Schedule auto-approved! Refreshing timetable...");
+          // Small delay to ensure DB is updated
+          setTimeout(() => {
+            fetchTimetableSlots(selectedProfessor.id);
+          }, 1000);
+        }
       } else {
         setScheduleError(data.message || "Failed to generate schedule");
       }
@@ -448,8 +461,23 @@ export default function AdminPage() {
           )}
 
           {scheduleResult && (
-            <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded p-3 space-y-2 text-xs">
-              <div className="flex items-start gap-2">2">Schedule Generated!</p>
+            <div className={`${
+              scheduleResult.status === "approved" 
+                ? "bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800" 
+                : "bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800"
+            } border rounded p-3 space-y-2 text-xs`}>
+              <div className="flex items-start gap-2">
+                <CheckCircle className="h-4 w-4 text-green-500 flex-shrink-0 mt-0.5" />
+                <div className="flex-1 space-y-2">
+                  {scheduleResult.status === "approved" ? (
+                    <p className="font-semibold text-blue-700 dark:text-blue-300">
+                      ✅ Schedule Auto-Applied! (Best of 3 runs)
+                    </p>
+                  ) : (
+                    <p className="font-semibold text-green-700 dark:text-green-300">
+                      Schedule Generated!
+                    </p>
+                  )}
                   
                   {/* Core Metrics */}
                   <div className="grid grid-cols-2 gap-2 mb-2">
@@ -470,7 +498,9 @@ export default function AdminPage() {
                     scheduleResult.gini_room_usage !== undefined || 
                     scheduleResult.gini_ac_access !== undefined) && (
                     <div className="border-t border-green-200 dark:border-green-700 pt-2 mt-2">
-                      <p className="text-gray-700 dark:text-gray-300 font-medium mb-1">📊 Fairness (Gini)</p>
+                      <p className="text-gray-700 dark:text-gray-300 font-medium mb-1">
+                        📊 Fairness Metrics (Gini)
+                      </p>
                       <div className="space-y-1">
                         {scheduleResult.gini_workload !== undefined && (
                           <div className="flex items-center justify-between">
@@ -482,6 +512,8 @@ export default function AdminPage() {
                               'text-red-600'
                             }`}>
                               {scheduleResult.gini_workload.toFixed(3)}
+                              {scheduleResult.gini_workload < 0.2 ? ' ✨' : 
+                               scheduleResult.gini_workload < 0.3 ? ' ✓' : ''}
                             </span>
                           </div>
                         )}
@@ -495,6 +527,8 @@ export default function AdminPage() {
                               'text-red-600'
                             }`}>
                               {scheduleResult.gini_room_usage.toFixed(3)}
+                              {scheduleResult.gini_room_usage < 0.2 ? ' ✨' : 
+                               scheduleResult.gini_room_usage < 0.3 ? ' ✓' : ''}
                             </span>
                           </div>
                         )}
@@ -508,18 +542,25 @@ export default function AdminPage() {
                               'text-red-600'
                             }`}>
                               {scheduleResult.gini_ac_access.toFixed(3)}
+                              {scheduleResult.gini_ac_access < 0.2 ? ' ✨' : 
+                               scheduleResult.gini_ac_access < 0.3 ? ' ✓' : ''}
                             </span>
                           </div>
                         )}
                       </div>
                       <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-1">
-                        🟢 &lt;0.2 Excellent • 🔵 0.2-0.3 Good • 🟡 0.3-0.4 Moderate • 🔴 &gt;0.4 High
+                        ✨ &lt;0.2 Excellent • ✓ 0.2-0.3 Good • ⚠️ 0.3-0.4 Moderate
                       </p>
                     </div>
-                  )}{scheduleResult.hard_constraint_violations}
+                  )}
+                  
+                  {scheduleResult.status === "approved" && (
+                    <div className="bg-blue-100 dark:bg-blue-800/30 rounded p-2 mt-2">
+                      <p className="text-blue-700 dark:text-blue-300 text-[11px]">
+                        🎯 This schedule is now LIVE on your timetable!
                       </p>
                     </div>
-                  </div>
+                  )}
                 </div>
               </div>
 
@@ -541,6 +582,8 @@ export default function AdminPage() {
                       Approve & Apply
                     </>
                   )}
+                </Button>
+              )}
                 </Button>
               )}
             </div>
