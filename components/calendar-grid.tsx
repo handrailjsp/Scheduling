@@ -95,7 +95,13 @@ export default function CalendarGrid({ currentDate, events, view, onSelectEvent,
   }
 
   if (view === "week") {
-    const hours = Array.from({ length: 24 }, (_, i) => i)
+    const hours = Array.from({ length: 15 }, (_, i) => i + 7) // 7am to 9pm
+
+    const formatHourLabel = (hour: number): string => {
+      const isPM = hour >= 12
+      const displayHour = hour % 12 || 12
+      return `${displayHour}${isPM ? "pm" : "am"}`
+    }
 
     const getEventsForDateAndHour = (date: Date, hour: number) => {
       return events.filter((event) => {
@@ -139,7 +145,7 @@ export default function CalendarGrid({ currentDate, events, view, onSelectEvent,
           <div className="w-20 flex-shrink-0 border-r border-border bg-muted/10">
             {hours.map((hour) => (
               <div key={hour} className="h-16 border-b border-border flex items-start justify-center pt-2">
-                <span className="text-xs text-muted-foreground font-light">{String(hour).padStart(2, "0")}:00</span>
+                <span className="text-xs text-muted-foreground font-light">{formatHourLabel(hour)}</span>
               </div>
             ))}
           </div>
