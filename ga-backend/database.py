@@ -7,10 +7,19 @@ load_dotenv()
 
 # Supabase client
 supabase_url = os.getenv("SUPABASE_URL")
-supabase_key = os.getenv("SUPABASE_KEY")
+# use service role key on server to bypass RLS
+supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_KEY")
 
 if not supabase_url or not supabase_key:
-    raise Exception("SUPABASE_URL and SUPABASE_KEY must be set as environment variables. If running locally, set them in a .env file. If deploying, set them in your deployment environment.")
+    raise Exception("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (or SUPABASE_KEY) must be set as environment variables. If running locally, set them in a .env file. If deploying, set them in your deployment environment.")
+
+# Log which key is being used
+if os.getenv("SUPABASE_SERVICE_ROLE_KEY"):
+    print("[INIT] Using SUPABASE_SERVICE_ROLE_KEY (RLS bypassed)")
+elif os.getenv("SUPABASE_KEY"):
+    print("[INIT] WARNING: Using SUPABASE_KEY (anon key - RLS ACTIVE). For server operations, set SUPABASE_SERVICE_ROLE_KEY to bypass RLS.")
+else:
+    print("[INIT] ERROR: Neither SUPABASE_SERVICE_ROLE_KEY nor SUPABASE_KEY is set!")
 
 supabase: Client = create_client(supabase_url, supabase_key)
 
@@ -69,19 +78,60 @@ def get_professor_constraints(professor_id=None):
     return response.data
 
 
+def _serialize_value(val):
+    """Convert datetime-like objects to iso strings for JSON transport."""
+    import datetime
+    if isinstance(val, (datetime.datetime, datetime.date, datetime.time)):
+        return val.isoformat()
+    return val
+
+
 def save_generated_schedule(fitness_score, hard_violations, soft_score, gini_workload=0.0, gini_room_usage=0.0, gini_ac_access=0.0, notes=""):
-    """Save a new generated schedule with Gini coefficients and return its ID."""
-    response = supabase.table("generated_schedules").insert({
-        "fitness_score": fitness_score,
-        "hard_constraint_violations": hard_violations,
-        "soft_constraint_score": soft_score,
-        "gini_workload": gini_workload,
-        "gini_room_usage": gini_room_usage,
-        "gini_ac_access": gini_ac_access,
+    """Save a new generated schedule with Gini coefficients and return its ID."
+    Values are serialized so that any datetime/time become ISO strings.
+    Returns tuple (id, None) on success or (None, error_message) on failure.
+    """
+    payload = {
+        "fitness_score": _serialize_value(fitness_score),
+        "hard_constraint_violations": _serialize_value(hard_violations),
+        "soft_constraint_score": _serialize_value(soft_score),
+        "gini_workload": _serialize_value(gini_workload),
+        "gini_room_usage": _serialize_value(gini_room_usage),
+        "gini_ac_access": _serialize_value(gini_ac_access),
         "status": "pending",
-        "notes": notes
-    }).execute()
-    return response.data[0]["id"]
+        "notes": _serialize_value(notes)
+    }
+    print(f"[DEBUG] Attempting to insert schedule with payload keys: {list(payload.keys())}")
+    # perform insert via REST API instead of supabase-py client which
+    # sometimes raises JSONDecodeError even when the HTTP response is valid.
+    import requests
+    headers = {
+        "apikey": supabase_key,
+        "Authorization": f"Bearer {supabase_key}",
+        "Content-Type": "application/json",
+        "Prefer": "return=representation"
+    }
+    rest_url = f"{supabase_url}/rest/v1/generated_schedules"
+    try:
+        resp = requests.post(rest_url, headers=headers, json=payload)
+    except Exception as e:
+        err_msg = f"HTTP request failed: {e}"
+        print(f"ERROR: {err_msg}")
+        return None, err_msg
+    if resp.status_code >= 400:
+        print(f"HTTP {resp.status_code} error inserting schedule: {resp.text}")
+        return None, f"HTTP {resp.status_code}: {resp.text}"
+    try:
+        data = resp.json()
+    except Exception as e:
+        print(f"Failed to parse JSON response: {e} (raw={resp.text})")
+        return None, f"JSON parse error: {e}"
+    if not data or len(data) == 0:
+        print(f"ERROR: REST insert returned empty list: {data}")
+        return None, "Empty response from REST insert"
+    schedule_id = data[0].get("id")
+    print(f"[DEBUG] Successfully saved schedule (REST) with ID: {schedule_id}")
+    return schedule_id, None
 
 
 def save_schedule_slots(schedule_id, slots, courses=None):
@@ -92,20 +142,49 @@ def save_schedule_slots(schedule_id, slots, courses=None):
     """
     # Pre-allocate list with exact size for efficiency
     # Only use columns that exist in the table
-    slots_with_schedule_id = [{
-        "schedule_id": schedule_id,
-        "section_id": slot.get("section_id"),
-        "course_id": slot["course_id"],
-        "professor_id": slot["professor_id"],
-        "room_id": slot["room_id"],
-        "day_of_week": slot["day_of_week"],
-        "start_hour": slot["start_hour"],
-        "end_hour": slot["end_hour"]
-    } for slot in slots]
-    
+    slots_with_schedule_id = []
+    for slot in slots:
+        rec = {
+            "schedule_id": _serialize_value(schedule_id),
+            "section_id": _serialize_value(slot.get("section_id")),
+            "course_id": _serialize_value(slot["course_id"]),
+            "professor_id": _serialize_value(slot["professor_id"]),
+            "room_id": _serialize_value(slot["room_id"]),
+            "day_of_week": _serialize_value(slot["day_of_week"]),
+            "start_hour": _serialize_value(slot["start_hour"]),
+            "end_hour": _serialize_value(slot["end_hour"])
+        }
+        slots_with_schedule_id.append(rec)
     # Single batch insert - much faster than multiple inserts
-    response = supabase.table("generated_schedule_slots").insert(slots_with_schedule_id).execute()
-    return response.data
+    print(f"[DEBUG] Inserting {len(slots_with_schedule_id)} schedule slots (REST)...")
+    # Use REST API to avoid supabase-py client decoding issues
+    import requests
+    headers = {
+        "apikey": supabase_key,
+        "Authorization": f"Bearer {supabase_key}",
+        "Content-Type": "application/json",
+        "Prefer": "return=representation"
+    }
+    rest_url = f"{supabase_url}/rest/v1/generated_schedule_slots"
+    try:
+        resp = requests.post(rest_url, headers=headers, json=slots_with_schedule_id)
+    except Exception as e:
+        err_msg = f"HTTP request failed (slots): {e}"
+        print(f"ERROR: {err_msg}")
+        return None, err_msg
+    if resp.status_code >= 400:
+        print(f"HTTP {resp.status_code} error inserting slots: {resp.text}")
+        return None, f"HTTP {resp.status_code}: {resp.text}"
+    try:
+        data = resp.json()
+    except Exception as e:
+        print(f"Failed to parse JSON slots response: {e} (raw={resp.text})")
+        return None, f"JSON parse error: {e}"
+    if not data or len(data) == 0:
+        print(f"ERROR: REST slots insert returned empty list: {data}")
+        return None, "Empty response from REST slots insert"
+    print(f"[DEBUG] Successfully saved {len(data)} schedule slots via REST")
+    return data, None
 
 
 def get_generated_schedules():

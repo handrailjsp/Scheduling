@@ -293,7 +293,7 @@ export default function AdminPage() {
     router.push("/")
   }
 
-// ...existing code...
+
   const handleGenerateSchedule = async () => {
     setGeneratingSchedule(true);
     setScheduleError(null);
@@ -301,19 +301,39 @@ export default function AdminPage() {
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL;
       console.log(`🚀 AUTO-OPTIMIZE: Generating multiple schedules and picking best...`);
-      
+      console.log(`API URL: ${apiUrl}`);
+
       // Auto-optimize: runs=3 means it generates 3 schedules and picks the best
       const response = await fetch(`${apiUrl}/api/generate-schedule?runs=3`, {
         method: "POST",
+        mode: "cors",
         headers: {
           "Content-Type": "application/json",
+          "Accept": "application/json",
         },
       });
-      
+
       console.log("Response status:", response.status);
+      console.log("Response headers:", Object.fromEntries(response.headers.entries()));
+
+      // Check if response is ok
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`HTTP Error ${response.status}:`, errorText);
+        throw new Error(`HTTP ${response.status}: ${errorText}`);
+      }
+
+      // Check if response has JSON content type
+      const contentType = response.headers.get("content-type");
+      if (!contentType || !contentType.includes("application/json")) {
+        const responseText = await response.text();
+        console.error("Response is not JSON:", responseText);
+        throw new Error("Server returned non-JSON response");
+      }
+
       const data = await response.json();
       console.log("Response data:", data);
-      
+
       if (data.success) {
         setScheduleResult({
           id: data.schedule_id,
@@ -326,7 +346,7 @@ export default function AdminPage() {
           status: data.auto_approved ? "approved" : "pending",
           notes: data.message || "Generated successfully"
         });
-        
+
         // If auto-approved, refresh the timetable to show new schedule
         if (data.auto_approved && selectedProfessor) {
           console.log("✅ Schedule auto-approved! Refreshing timetable...");
@@ -336,16 +356,21 @@ export default function AdminPage() {
           }, 1000);
         }
       } else {
+        console.error("API returned success=false:", data);
         setScheduleError(data.message || "Failed to generate schedule");
       }
     } catch (err) {
-      console.error("Error connecting to backend:", err);
-      setScheduleError("Failed to connect to the scheduling service. Make sure the backend is running.");
+      console.error("Error generating schedule:", err);
+      if (err instanceof Error) {
+        setScheduleError(`Failed to generate schedule: ${err.message}`);
+      } else {
+        setScheduleError("An unexpected error occurred while generating the schedule.");
+      }
     } finally {
       setGeneratingSchedule(false);
     }
   }
-// ...existing code...
+
   const handleApproveSchedule = async () => {
     if (!scheduleResult) return;
     setGeneratingSchedule(true);

@@ -106,6 +106,10 @@ def generate_schedule(runs: int = 3):
         for i in range(num_runs):
             print(f"\n--- RUN {i+1}/{num_runs} ---")
             result = run_genetic_algorithm()
+            # if the GA returned an error, propagate immediately
+            if isinstance(result, dict) and result.get("error"):
+                print(f"GA run failed: {result.get('message')}")
+                raise Exception(result.get("message", "Unknown GA failure"))
             all_results.append(result)
             
             avg_gini = (result.get("gini_workload", 0) + 

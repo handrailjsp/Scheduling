@@ -563,7 +563,7 @@ def run_genetic_algorithm():
     print(f"   → Overall Fairness: {fairness_rating} (avg: {avg_gini:.4f})")
     
     # Save to database
-    schedule_id = database.save_generated_schedule(
+    schedule_id, err = database.save_generated_schedule(
         fitness_score=best_fitness,
         hard_violations=hard_violations,
         soft_score=soft_score,
@@ -572,9 +572,16 @@ def run_genetic_algorithm():
         gini_ac_access=final_gini_metrics['gini_ac_access'],
         notes=f"Generated after {generation} generations"
     )
+    if err:
+        print(f"Failed to persist generated schedule: {err}")
+        # do not attempt to save slots if schedule id isn't available
+        return {"error": "database_insert_failure", "message": err}
     
     # Save all slots with course names
-    database.save_schedule_slots(schedule_id, best_schedule, data["courses"])
+    slots_resp, slots_err = database.save_schedule_slots(schedule_id, best_schedule, data["courses"])
+    if slots_err:
+        print(f"Failed to persist schedule slots: {slots_err}")
+        # not fatal for the returned schedule, but log
     
     print(f"Schedule saved to database with ID: {schedule_id}")
     print(f"✓ Validated: 0 professor conflicts, 0 room conflicts")
