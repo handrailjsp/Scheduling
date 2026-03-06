@@ -12,8 +12,8 @@ interface AdminCalendarGridProps {
   professor: Professor
   timetableSlots: TimetableSlot[]
   onAddSlot: (slot: Omit<TimetableSlot, "id">) => void
-  onUpdateSlot?: (id: string, updates: Omit<TimetableSlot, "id">) => void
-  onDeleteSlot: (id: string) => void
+  onUpdateSlot?: (id: number, updates: Omit<TimetableSlot, "id">) => void
+  onDeleteSlot: (id: number) => void
   currentDate: Date
   onDateChange: (date: Date) => void
 }
@@ -35,7 +35,7 @@ export default function AdminCalendarGrid({
     const displayHour = hour % 12 || 12
     return `${displayHour}${isPM ? "pm" : "am"}`
   }
-  const [modalOpen, setModalOpen] = useState<{ date: Date; hour: number; slotId?: string } | null>(null)
+  const [modalOpen, setModalOpen] = useState<{ date: Date; hour: number; slotId?: number } | null>(null)
   const [previewSlot, setPreviewSlot] = useState<{ dayOfWeek: number; startHour: number; endHour: number } | null>(null)
 
   const getSlotForTime = (dayOfWeek: number, hour: number) => {
@@ -70,7 +70,7 @@ export default function AdminCalendarGrid({
     setPreviewSlot(null)
   }
 
-  const handleUpdateSlot = (id: string, slot: Omit<TimetableSlot, "id">) => {
+  const handleUpdateSlot = (id: number, slot: Omit<TimetableSlot, "id">) => {
     console.log("[v0] Updating slot:", id, slot)
     onUpdateSlot?.(id, slot)
     setModalOpen(null)

@@ -11,7 +11,7 @@ interface TimetableSlotModalProps {
   professor: Professor
   selectedDate: Date
   hour: number
-  slotId?: string
+  slotId?: number
   existingSlot?: TimetableSlot
   onSubmit: (data: Omit<TimetableSlot, "id">) => void
   onClose: () => void

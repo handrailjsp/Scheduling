@@ -257,7 +257,7 @@ export default function AdminPage() {
         return
       }
 
-      setTimetableSlots(timetableSlots.map((slot: TimetableSlot) => (slot.id === id ? { id, ...updates } : slot)))
+      setTimetableSlots(timetableSlots.map((slot: TimetableSlot) => (slot.id === id ? { ...slot, ...updates } : slot)))
     } catch (error) {
       console.error('Error updating timetable slot:', error)
       alert('An unexpected error occurred while updating the timetable slot')
