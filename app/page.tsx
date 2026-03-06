@@ -35,6 +35,104 @@ interface ScheduleSlot {
   }
 }
 
+interface Schedule {
+  id: string
+  status: 'pending' | 'approved' | 'rejected'
+  slots: ScheduleSlot[]
+  generation_date: string
+  created_at?: string
+}
+
+interface ApiResponse<T> {
+  success: boolean
+  data: T
+  error?: string
+  message?: string
+}
+
+// Validates that a schedule slot has all required fields
+const isValidScheduleSlot = (slot: any): slot is ScheduleSlot => {
+  return (
+    (typeof slot.id === 'number' || typeof slot.id === 'string') &&
+    typeof slot.day_of_week === 'number' &&
+    typeof slot.start_hour === 'number' &&
+    typeof slot.end_hour === 'number'
+  )
+}
+
+// Converts a schedule slot to a calendar event with validation
+const mapSlotToEvent = (slot: ScheduleSlot): CalendarEvent | null => {
+  try {
+    if (!slot.id) {
+      console.warn('[fetchLatestSchedule] Slot missing id:', slot)
+      return null
+    }
+
+    if (typeof slot.day_of_week !== 'number' || slot.day_of_week < 0 || slot.day_of_week > 6) {
+      console.warn('[fetchLatestSchedule] Invalid day_of_week:', slot.day_of_week)
+      return null
+    }
+
+    // Calculate event date correctly - handle events earlier in the week
+    const baseDate = new Date()
+    const currentDay = baseDate.getDay()
+    let dayOffset = slot.day_of_week - currentDay
+
+    if (dayOffset < 0) {
+      dayOffset += 7
+    }
+
+    const eventDate = new Date(baseDate)
+    eventDate.setDate(baseDate.getDate() + dayOffset)
+
+    const startTime = new Date(eventDate)
+    startTime.setHours(slot.start_hour, 0, 0, 0)
+
+    const endTime = new Date(eventDate)
+    endTime.setHours(slot.end_hour, 0, 0, 0)
+
+    if (endTime <= startTime) {
+      console.warn('[fetchLatestSchedule] Invalid time range:', { startTime, endTime })
+      return null
+    }
+
+    // Color assignment with safety
+    const colors = [
+      "bg-blue-500",
+      "bg-purple-500",
+      "bg-green-500",
+      "bg-yellow-500",
+      "bg-red-500",
+      "bg-pink-500",
+      "bg-indigo-500",
+      "bg-teal-500",
+      "bg-orange-500",
+      "bg-cyan-500",
+    ]
+    const professorId = slot.professor_id || 0
+    const color = colors[Math.abs(Number(professorId)) % colors.length]
+
+    const professorName = slot.professors?.name || `Professor ${slot.professor_id || 'Unknown'}`
+    const roomId = slot.room_id || 'Unknown'
+    const subject = slot.subject || 'Course'
+
+    return {
+      id: String(slot.id),
+      title: professorName,
+      description: `${subject} - Room ${roomId}`,
+      startTime,
+      endTime,
+      color,
+    }
+  } catch (error) {
+    console.error('[fetchLatestSchedule] Error mapping slot to event:', {
+      slot,
+      error: error instanceof Error ? error.message : String(error),
+    })
+    return null
+  }
+}
+
 export default function CalendarApp() {
   const [currentDate, setCurrentDate] = useState(new Date(2025, 10, 23))
   const [view, setView] = useState<"month" | "week" | "day">("week")
@@ -59,135 +157,201 @@ export default function CalendarApp() {
   })
 
   const fetchLatestSchedule = async () => {
+    let hasError = false
+
     try {
       setLoading(true)
-      
-      console.log("Fetching latest approved generated schedule...")
-      // Fetch latest approved generated schedule
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL
-      const schedulesResponse = await fetch(`${apiUrl}/api/schedules`)
-      const schedulesResult = await schedulesResponse.json()
-      
-      if (schedulesResult.success && schedulesResult.data && schedulesResult.data.length > 0) {
-        // Find the latest approved schedule
-        const approvedSchedules = schedulesResult.data.filter((s: any) => s.status === 'approved')
-        
-        if (approvedSchedules.length > 0) {
-          const latestSchedule = approvedSchedules[0] // Already sorted by generation_date desc
-          console.log(`Using approved schedule ID: ${latestSchedule.id}`)
-          
-          // Fetch the schedule details
-          const detailsResponse = await fetch(`${apiUrl}/api/schedules/${latestSchedule.id}`)
-          const detailsResult = await detailsResponse.json()
-          
-          console.log("Schedule details response:", detailsResult)
-          
-          if (detailsResult.success && detailsResult.data && detailsResult.data.slots) {
-            const slots = detailsResult.data.slots
-            console.log(`Processing ${slots.length} generated schedule slots...`)
-            
-            // Filter to show only AC room slots (322, 323, 324) in main calendar view
-            const AC_ROOMS = [322, 323, 324]
-            const acSlots = slots.filter((slot: any) => AC_ROOMS.includes(slot.room_id))
-            console.log(`Filtered to ${acSlots.length} AC room slots for main calendar view`)
-            
-            // Convert slots to calendar events
-            const calendarEvents: CalendarEvent[] = acSlots.map((slot: any) => {
-              // Calculate the date for this slot
-              const baseDate = new Date()
-              const dayOffset = slot.day_of_week - baseDate.getDay()
-              const eventDate = new Date(baseDate)
-              eventDate.setDate(baseDate.getDate() + dayOffset)
-              
-              const startTime = new Date(eventDate)
-              startTime.setHours(slot.start_hour, 0, 0, 0)
-              
-              const endTime = new Date(eventDate)
-              endTime.setHours(slot.end_hour, 0, 0, 0)
-              
-              // Color code by professor
-              const colors = [
-                "bg-blue-500", "bg-purple-500", "bg-green-500", "bg-yellow-500",
-                "bg-red-500", "bg-pink-500", "bg-indigo-500", "bg-teal-500",
-                "bg-orange-500", "bg-cyan-500"
-              ]
-              const color = colors[slot.professor_id % colors.length]
-              
-              return {
-                id: slot.id.toString(),
-                title: slot.professors?.name || `Professor ${slot.professor_id}`,
-                description: `${slot.subject || "Course"} - Room ${slot.room_id}`,
-                startTime,
-                endTime,
-                color
-              }
-            })
-            
-            console.log("Calendar events created:", calendarEvents.length)
-            setEvents(calendarEvents)
-            return
-          }
-        }
+
+      // Get API URL with fallback
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'
+      if (!process.env.NEXT_PUBLIC_API_URL) {
+        console.warn('[fetchLatestSchedule] NEXT_PUBLIC_API_URL not configured, using default:', apiUrl)
       }
-      
-      // Fallback: If no approved generated schedule, try fetching from timetable_slots
-      console.log("No approved generated schedule found, trying timetable_slots...")
+
+      console.log('[fetchLatestSchedule] Starting fetch from:', apiUrl)
+
+      // ========================================================================
+      // STEP 1: Try to fetch generated schedule
+      // ========================================================================
+      try {
+        console.log('[fetchLatestSchedule] Fetching generated schedules...')
+        const schedulesResponse = await fetch(`${apiUrl}/api/schedules`)
+
+        // Check HTTP status
+        if (!schedulesResponse.ok) {
+          throw new Error(
+            `[fetchLatestSchedule] API returned ${schedulesResponse.status} ${schedulesResponse.statusText}`
+          )
+        }
+
+        const schedulesResult: ApiResponse<Schedule[]> = await schedulesResponse.json()
+
+        // Validate response structure
+        if (!schedulesResult.success) {
+          throw new Error(`[fetchLatestSchedule] API returned success: false, message: ${schedulesResult.message}`)
+        }
+
+        if (!Array.isArray(schedulesResult.data)) {
+          throw new Error('[fetchLatestSchedule] API data is not an array')
+        }
+
+        console.log(`[fetchLatestSchedule] Received ${schedulesResult.data.length} schedules`)
+
+        // Check array is not empty before accessing
+        const approvedSchedules = schedulesResult.data.filter((s) => s.status === 'approved')
+
+        if (approvedSchedules.length === 0) {
+          console.log('[fetchLatestSchedule] No approved schedules found, trying fallback...')
+          throw new Error('No approved schedules found')
+        }
+
+        const latestSchedule = approvedSchedules[0]
+        console.log(`[fetchLatestSchedule] Using approved schedule ID: ${latestSchedule.id}`)
+
+        // Proper nested try-catch to prevent race condition
+        try {
+          const detailsResponse = await fetch(`${apiUrl}/api/schedules/${latestSchedule.id}`)
+
+          // Check HTTP status
+          if (!detailsResponse.ok) {
+            throw new Error(
+              `[fetchLatestSchedule] Failed to fetch schedule details: ${detailsResponse.status} ${detailsResponse.statusText}`
+            )
+          }
+
+          const detailsResult: ApiResponse<{ slots: ScheduleSlot[] }> = await detailsResponse.json()
+
+          if (!detailsResult.success) {
+            throw new Error(`[fetchLatestSchedule] Schedule details returned success: false`)
+          }
+
+          if (!Array.isArray(detailsResult.data?.slots)) {
+            throw new Error('[fetchLatestSchedule] Schedule slots is not an array')
+          }
+
+          const slots = detailsResult.data.slots
+          console.log(`[fetchLatestSchedule] Processing ${slots.length} schedule slots...`)
+
+          // Use consistent room filter with number type
+          const AC_ROOM_IDS = [322, 323, 324]
+          const acSlots = slots.filter((slot) => {
+            const roomId = Number(slot.room_id)
+            return AC_ROOM_IDS.includes(roomId)
+          })
+
+          console.log(`[fetchLatestSchedule] Filtered to ${acSlots.length} AC room slots`)
+
+          // Map with validation and error handling
+          const calendarEvents = acSlots
+            .filter(isValidScheduleSlot)
+            .map(mapSlotToEvent)
+            .filter((event): event is CalendarEvent => event !== null)
+
+          console.log(`[fetchLatestSchedule] Created ${calendarEvents.length} valid calendar events from generated schedule`)
+
+          if (calendarEvents.length > 0) {
+            setEvents(calendarEvents)
+            console.log('[fetchLatestSchedule] Successfully loaded generated schedule')
+            return // Success - exit function
+          } else {
+            console.log('[fetchLatestSchedule] Generated schedule had no valid events, trying fallback...')
+            throw new Error('No valid events in generated schedule')
+          }
+        } catch (detailsError) {
+          const errorMsg = detailsError instanceof Error ? detailsError.message : String(detailsError)
+          console.warn('[fetchLatestSchedule] Failed to fetch schedule details:', errorMsg)
+          throw detailsError // Re-throw to trigger fallback
+        }
+      } catch (generatedError) {
+        const errorMsg = generatedError instanceof Error ? generatedError.message : String(generatedError)
+        console.warn('[fetchLatestSchedule] Generated schedule fetch failed:', {
+          error: errorMsg,
+          timestamp: new Date().toISOString(),
+        })
+        // Fall through to timetable fallback
+      }
+
+      // ========================================================================
+      // STEP 2: Fallback - Try timetable endpoint
+      // ========================================================================
+      console.log('[fetchLatestSchedule] Attempting timetable fallback...')
+
       try {
         const timetableResponse = await fetch(`${apiUrl}/api/timetable`)
-        const timetableResult = await timetableResponse.json()
-        
-        if (timetableResult.success && timetableResult.data && timetableResult.data.length > 0) {
-          const slots = timetableResult.data
-          console.log(`Using ${slots.length} slots from live timetable`)
-          
-          // Filter AC rooms
-          const AC_ROOMS = ['322', '323', '324']
-          const acSlots = slots.filter((slot: any) => AC_ROOMS.includes(slot.room))
-          
-          // Convert to calendar events
-          const calendarEvents: CalendarEvent[] = acSlots.map((slot: any, index: number) => {
-            const baseDate = new Date()
-            const dayOffset = slot.day_of_week - baseDate.getDay()
-            const eventDate = new Date(baseDate)
-            eventDate.setDate(baseDate.getDate() + dayOffset)
-            
-            const startTime = new Date(eventDate)
-            startTime.setHours(slot.hour, 0, 0, 0)
-            
-            const endTime = new Date(eventDate)
-            endTime.setHours(slot.end_hour, 0, 0, 0)
-            
-            const colors = [
-              "bg-blue-500", "bg-purple-500", "bg-green-500", "bg-yellow-500",
-              "bg-red-500", "bg-pink-500", "bg-indigo-500", "bg-teal-500"
-            ]
-            const color = colors[slot.professor_id % colors.length]
-            
-            return {
-              id: slot.id.toString(),
-              title: slot.professors?.name || `Professor ${slot.professor_id}`,
-              description: `${slot.subject || "Course"} - Room ${slot.room}`,
-              startTime,
-              endTime,
-              color
-            }
-          })
-          
-          setEvents(calendarEvents)
-          return
+
+        // Check HTTP status
+        if (!timetableResponse.ok) {
+          throw new Error(
+            `[fetchLatestSchedule] Timetable API returned ${timetableResponse.status} ${timetableResponse.statusText}`
+          )
         }
-      } catch (error) {
-        console.error("Error fetching timetable_slots:", error)
+
+        const timetableResult: ApiResponse<ScheduleSlot[]> = await timetableResponse.json()
+
+        if (!timetableResult.success) {
+          throw new Error('[fetchLatestSchedule] Timetable API returned success: false')
+        }
+
+        if (!Array.isArray(timetableResult.data)) {
+          throw new Error('[fetchLatestSchedule] Timetable data is not an array')
+        }
+
+        const slots = timetableResult.data
+        console.log(`[fetchLatestSchedule] Timetable returned ${slots.length} slots`)
+
+        // Use consistent room filter with number type
+        const AC_ROOM_IDS = [322, 323, 324]
+        const acSlots = slots.filter((slot) => {
+          // Handle both room and room_id property names
+          const roomId = Number(slot.room_id || slot.room)
+          return AC_ROOM_IDS.includes(roomId)
+        })
+
+        console.log(`[fetchLatestSchedule] Timetable filtered to ${acSlots.length} AC room slots`)
+
+        // Map with validation and error handling
+        const calendarEvents = acSlots
+          .filter(isValidScheduleSlot)
+          .map(mapSlotToEvent)
+          .filter((event): event is CalendarEvent => event !== null)
+
+        console.log(`[fetchLatestSchedule] Created ${calendarEvents.length} valid calendar events from timetable`)
+
+        if (calendarEvents.length > 0) {
+          setEvents(calendarEvents)
+          console.log('[fetchLatestSchedule] Successfully loaded timetable fallback')
+          return // Success - exit function
+        } else {
+          throw new Error('Timetable had no valid events')
+        }
+      } catch (timetableError) {
+        const errorMsg = timetableError instanceof Error ? timetableError.message : String(timetableError)
+        console.error('[fetchLatestSchedule] Timetable fallback failed:', {
+          error: errorMsg,
+          endpoint: `${apiUrl}/api/timetable`,
+          timestamp: new Date().toISOString(),
+        })
+        hasError = true
+        throw timetableError
       }
-      
-      console.log("No schedule data found, calendar will be empty")
-      setEvents([])
     } catch (error) {
-      console.error("Error fetching schedule:", error)
-      // Set empty events if fetch fails
+      // Final error state
+      hasError = true
+      const errorMsg = error instanceof Error ? error.message : String(error)
+
+      console.error('[fetchLatestSchedule] All schedule fetch attempts failed:', {
+        error: errorMsg,
+        timestamp: new Date().toISOString(),
+        attempts: ['generated_schedule', 'timetable_fallback'],
+      })
+
       setEvents([])
     } finally {
       setLoading(false)
+
+      if (hasError) {
+        console.warn('[fetchLatestSchedule] Failed to load schedule - calendar will be empty')
+      }
     }
   }
 
