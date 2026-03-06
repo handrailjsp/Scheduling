@@ -95,6 +95,9 @@ export default function CalendarGrid({ currentDate, events, view, onSelectEvent,
   }
 
   if (view === "week") {
+    // Week view with multi-block event highlighting
+    // Events now span multiple hourly blocks based on their duration
+    // Example: A class from 1pm-3pm will highlight both 1-2pm and 2-3pm blocks
     const hours = Array.from({ length: 15 }, (_, i) => i + 7) // 7am to 9pm
 
     const formatHourLabel = (hour: number): string => {
@@ -103,7 +106,28 @@ export default function CalendarGrid({ currentDate, events, view, onSelectEvent,
       return `${displayHour}${isPM ? "pm" : "am"}`
     }
 
-    const getEventsForDateAndHour = (date: Date, hour: number) => {
+    // Get events that span a specific hour (start within or before, end after)
+    // Used to visually highlight all blocks an event occupies
+    const getEventsSpanningHour = (date: Date, hour: number) => {
+      return events.filter((event) => {
+        const eventDate = new Date(event.startTime)
+        const eventEndDate = new Date(event.endTime)
+        const eventStartHour = eventDate.getHours()
+        const eventEndHour = eventEndDate.getHours()
+
+        // Check if event is on the same date
+        const isSameDate =
+          eventDate.getDate() === date.getDate() &&
+          eventDate.getMonth() === date.getMonth() &&
+          eventDate.getFullYear() === date.getFullYear()
+
+        // Event spans this hour if it starts on or before this hour and ends after this hour
+        return isSameDate && eventStartHour <= hour && eventEndHour > hour
+      })
+    }
+
+    // Get events that start at a specific hour (only render once, at the start)
+    const getEventsStartingAtHour = (date: Date, hour: number) => {
       return events.filter((event) => {
         const eventDate = new Date(event.startTime)
         const eventHour = eventDate.getHours()
@@ -114,6 +138,14 @@ export default function CalendarGrid({ currentDate, events, view, onSelectEvent,
           eventHour === hour
         )
       })
+    }
+
+    // Calculate the row span for an event (how many hours it spans)
+    const getEventRowSpan = (event: CalendarEvent): number => {
+      const startHour = event.startTime.getHours()
+      const endHour = event.endTime.getHours()
+      const durationHours = endHour - startHour
+      return Math.max(1, durationHours)
     }
 
     return (
@@ -151,32 +183,81 @@ export default function CalendarGrid({ currentDate, events, view, onSelectEvent,
           </div>
 
           <div className="flex flex-1 divide-x divide-border">
-            {weekDays.map((date) => (
-              <div key={date.toISOString()} className="flex-1 divide-y divide-border/50">
-                {hours.map((hour) => {
-                  const hourEvents = getEventsForDateAndHour(date, hour)
-                  return (
-                    <div
-                      key={`${date.toISOString()}-${hour}`}
-                      className="h-16 bg-card hover:bg-muted/5 transition relative group"
-                    >
-                      {hourEvents.map((event) => (
-                        <div
-                          key={event.id}
-                          onClick={() => onSelectEvent(event)}
-                          className={cn(
-                            "text-xs px-2 py-1 rounded cursor-pointer hover:opacity-80 transition text-white truncate m-1",
-                            event.color,
-                          )}
-                        >
-                          {event.title}
+            {weekDays.map((date) => {
+              // Track which events have been rendered to avoid duplicates
+              const renderedEventIds = new Set<string>()
+
+              return (
+                <div key={date.toISOString()} className="flex-1 relative">
+                  {/* Background grid lines */}
+                  <div className="absolute inset-0 divide-y divide-border/50 pointer-events-none">
+                    {hours.map((hour) => (
+                      <div key={hour} className="h-16" />
+                    ))}
+                  </div>
+
+                  {/* Events layer */}
+                  <div className="relative">
+                    {hours.map((hour) => {
+                      const hourStartingEvents = getEventsStartingAtHour(date, hour)
+
+                      return (
+                        <div key={`${date.toISOString()}-${hour}`}>
+                          {hourStartingEvents.map((event) => {
+                            if (renderedEventIds.has(event.id)) return null
+
+                            renderedEventIds.add(event.id)
+                            const rowSpan = getEventRowSpan(event)
+
+                            return (
+                              <div
+                                key={event.id}
+                                onClick={() => onSelectEvent(event)}
+                                style={{
+                                  position: 'absolute',
+                                  top: `${hour * 64}px`, // 64px = h-16
+                                  left: '4px',
+                                  right: '4px',
+                                  height: `${rowSpan * 64 - 8}px`,
+                                  zIndex: 5,
+                                }}
+                                className={cn(
+                                  'rounded cursor-pointer hover:opacity-80 transition text-white px-2 py-1 text-xs overflow-hidden flex flex-col justify-center',
+                                  event.color,
+                                )}
+                              >
+                                <div className="font-medium truncate">{event.title}</div>
+                                <div className="text-xs opacity-90 truncate">
+                                  {event.startTime.toLocaleTimeString([], {
+                                    hour: '2-digit',
+                                    minute: '2-digit',
+                                  })}{' '}
+                                  -{' '}
+                                  {event.endTime.toLocaleTimeString([], {
+                                    hour: '2-digit',
+                                    minute: '2-digit',
+                                  })}
+                                </div>
+                              </div>
+                            )
+                          })}
                         </div>
-                      ))}
-                    </div>
-                  )
-                })}
-              </div>
-            ))}
+                      )
+                    })}
+                  </div>
+
+                  {/* Hour cells for hover effects */}
+                  <div className="relative">
+                    {hours.map((hour) => (
+                      <div
+                        key={`cell-${date.toISOString()}-${hour}`}
+                        className="h-16 bg-card hover:bg-muted/5 transition relative group border-b border-border/50"
+                      />
+                    ))}
+                  </div>
+                </div>
+              )
+            })}
           </div>
         </div>
       </div>

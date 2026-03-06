@@ -195,18 +195,69 @@ def get_generated_schedules():
 
 def get_schedule_details(schedule_id):
     """Fetch details of a specific generated schedule with all slots and course names."""
-    schedule = supabase.table("generated_schedules").select("*").eq("id", schedule_id).execute().data[0]
+    # Ensure schedule_id is an integer for the filter
+    try:
+        schedule_id = int(schedule_id)
+    except (ValueError, TypeError):
+        raise ValueError(f"Invalid schedule_id: {schedule_id}")
     
-    # Get slots with professor info
-    slots = supabase.table("generated_schedule_slots").select(
-        "*, professors(*)"
-    ).eq("schedule_id", schedule_id).execute().data
+    # Use REST API directly to avoid supabase-py client issues with .eq() chaining
+    import requests
+    headers = {
+        "apikey": supabase_key,
+        "Authorization": f"Bearer {supabase_key}",
+        "Content-Type": "application/json"
+    }
+    
+    try:
+        # Fetch schedule details via REST API
+        rest_url = f"{supabase_url}/rest/v1/generated_schedules?id=eq.{schedule_id}"
+        resp = requests.get(rest_url, headers=headers)
+        
+        if resp.status_code >= 400:
+            raise ValueError(f"Failed to fetch schedule {schedule_id}")
+        
+        schedule_data = resp.json()
+        if not schedule_data or len(schedule_data) == 0:
+            raise ValueError(f"Schedule {schedule_id} not found")
+        
+        schedule = schedule_data[0]
+        
+    except Exception as e:
+        print(f"[get_schedule_details] REST API error fetching schedule {schedule_id}: {str(e)}")
+        raise ValueError(f"Failed to fetch schedule {schedule_id}")
+    
+    # Get slots with professor info via REST API
+    try:
+        rest_url = f"{supabase_url}/rest/v1/generated_schedule_slots?schedule_id=eq.{schedule_id}&select=*,professors(*)"
+        resp = requests.get(rest_url, headers=headers)
+        
+        if resp.status_code >= 400:
+            raise Exception(f"HTTP {resp.status_code} fetching slots")
+        
+        slots = resp.json()
+    except Exception as e:
+        print(f"[get_schedule_details] REST API error fetching slots for schedule {schedule_id}: {str(e)}")
+        # Return schedule with empty slots instead of failing completely
+        slots = []
+    
+    if not slots:
+        # Return schedule with empty slots list instead of failing
+        return {
+            "schedule": schedule,
+            "slots": []
+        }
     
     # Get course mapping from timetable_slots to add subject names
-    timetable_slots = supabase.table("timetable_slots").select("subject, professor_id").execute().data
+    try:
+        rest_url = f"{supabase_url}/rest/v1/timetable_slots?select=subject,professor_id"
+        resp = requests.get(rest_url, headers=headers)
+        timetable_slots = resp.json() if resp.status_code < 400 else []
+    except Exception as e:
+        print(f"[get_schedule_details] Failed to fetch timetable for subject mapping: {str(e)}")
+        timetable_slots = []
     
     # Create a mapping of course_id to subject name from existing data
-    # We'll match by finding what subjects each professor teaches
     course_subjects = {}
     for slot in slots:
         course_id = slot["course_id"]
@@ -273,7 +324,35 @@ def approve_schedule(schedule_id):
         print(f"  ✓ Inserted {len(result.data)} new slots")
         
         # STEP 3: Mark schedule as approved
-        supabase.table("generated_schedules").update({"status": "approved"}).eq("id", schedule_id).execute()
+        # Ensure schedule_id is integer before using
+        schedule_id_int = int(schedule_id)
+        
+        # Use REST API directly to avoid supabase-py client issues with .update().eq() chaining
+        import requests
+        headers = {
+            "apikey": supabase_key,
+            "Authorization": f"Bearer {supabase_key}",
+            "Content-Type": "application/json",
+            "Prefer": "return=representation"
+        }
+        
+        # Update via REST API with proper filter syntax: id=eq.{value}
+        rest_url = f"{supabase_url}/rest/v1/generated_schedules?id=eq.{schedule_id_int}"
+        
+        try:
+            resp = requests.patch(rest_url, headers=headers, json={"status": "approved"})
+            
+            if resp.status_code >= 400:
+                print(f"⚠️  Warning: Failed to update schedule status (HTTP {resp.status_code}): {resp.text}")
+                raise Exception(f"HTTP {resp.status_code}: Failed to update schedule status")
+            
+            data = resp.json()
+            print(f"✅ Updated schedule status: {len(data) if isinstance(data, list) else 1} record(s)")
+            
+        except Exception as e:
+            print(f"⚠️  Warning: Failed to mark schedule as approved: {str(e)}")
+            print(f"   Schedule {schedule_id} applied to timetable but status not updated in DB")
+            raise  # Re-raise so main.py can handle it
         
         print(f"\n✅ SUCCESS: Schedule {schedule_id} is now LIVE!")
         print(f"========================================\n")

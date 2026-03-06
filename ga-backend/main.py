@@ -8,17 +8,21 @@ from ga_engine import run_genetic_algorithm
 app = FastAPI(title="Timetable GA API", version="1.0.0")
 
 # CORS middleware to allow Next.js to call this API
+# MUST be added before any route definitions
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:3000",  # Local development
+        "http://localhost:3001",  # Alternative local dev
+        "http://127.0.0.1:3000",  # Localhost IP
         "https://scheduling-z619.onrender.com",  # Backend itself (if needed)
         "https://scheduling-s69x.vercel.app",  # Deployed frontend URL (no trailing slash)
         "https://scheduling-s69x-a1z1qa0r4-joachimmsp-gmailcoms-projects.vercel.app"
     ],
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
+    max_age=3600,
 )
 
 
@@ -222,8 +226,11 @@ def get_schedule_details(schedule_id: int):
     try:
         details = database.get_schedule_details(schedule_id)
         return {"success": True, "data": details}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"ERROR in get_schedule_details for schedule_id {schedule_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch schedule details: {str(e)}")
 
 
 @app.post("/api/schedules/{schedule_id}/approve")
