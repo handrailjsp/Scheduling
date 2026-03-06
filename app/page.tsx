@@ -290,7 +290,7 @@ export default function CalendarApp() {
 
         // Show all rooms from timetable (fallback)
         // Log unique room IDs to help with debugging
-        const roomsInTimetable = Array.from(new Set(slots.map(s => s.room)))
+        const roomsInTimetable = Array.from(new Set(slots.map(s => s.room_id)))
         console.log(`[fetchLatestSchedule] Available rooms in timetable: ${roomsInTimetable.join(', ')}`)
         
         // Convert to calendar events from timetable
@@ -306,7 +306,7 @@ export default function CalendarApp() {
           console.log('[fetchLatestSchedule] Successfully loaded timetable fallback')
           return // Success - exit function
         } else {
-          throw new Error(`Timetable had no valid AC room slots. Timetable has rooms: ${roomsInTimetable.join(', ')} but we're looking for: ${AC_ROOM_IDS.join(', ')}`)
+          throw new Error(`Timetable had no valid slots. Timetable has ${slots.length} slots with rooms: ${roomsInTimetable.join(', ')}`)
         }
       } catch (timetableError) {
         const errorMsg = timetableError instanceof Error ? timetableError.message : String(timetableError)
