@@ -24,7 +24,8 @@ interface ScheduleSlot {
   professor_id: number
   course_id: number
   subject?: string
-  room_id: number
+  room_id?: number | string
+  room?: number | string  // Fallback property for alternative API responses
   day_of_week: number
   start_hour: number
   end_hour: number
@@ -143,19 +144,7 @@ export default function CalendarApp() {
   const [isRefreshing, setIsRefreshing] = useState(false)
   const router = useRouter()
 
-  // Fetch latest approved schedule on mount
-  useEffect(() => {
-    fetchLatestSchedule()
-  }, [])
-
-  // Set up automatic schedule refresh (polling every 10 seconds)
-  // This allows the user view to automatically update when admin generates new schedules
-  useScheduleRefresh({
-    enabled: true,
-    interval: 10000, // 10 seconds
-    onRefresh: fetchLatestSchedule,
-  })
-
+  // Define fetchLatestSchedule before using it in effects
   const fetchLatestSchedule = async () => {
     let hasError = false
 
@@ -354,6 +343,19 @@ export default function CalendarApp() {
       }
     }
   }
+
+  // Fetch latest approved schedule on mount
+  useEffect(() => {
+    fetchLatestSchedule()
+  }, [])
+
+  // Set up automatic schedule refresh (polling every 10 seconds)
+  // This allows the user view to automatically update when admin generates new schedules
+  useScheduleRefresh({
+    enabled: true,
+    interval: 10000, // 10 seconds
+    onRefresh: fetchLatestSchedule,
+  })
 
   const handleDeleteEvent = (eventId: string) => {
     setEvents(events.filter((e: CalendarEvent) => e.id !== eventId))
