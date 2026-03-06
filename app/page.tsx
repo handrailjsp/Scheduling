@@ -1,13 +1,14 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { ChevronLeft, ChevronRight, Calendar } from "lucide-react"
+import { ChevronLeft, ChevronRight, Calendar, RotateCw } from "lucide-react"
 import { getWeekDays } from "@/lib/date-utils"
 import SidebarNavigation from "@/components/sidebar-navigation"
 import { Button } from "@/components/ui/button"
 import { useRouter } from "next/navigation"
 import LoginModal from "@/components/login-modal"
 import { cn } from "@/lib/utils"
+import { useScheduleRefresh } from "@/hooks/use-schedule-refresh"
 
 export interface CalendarEvent {
   id: string
@@ -41,12 +42,21 @@ export default function CalendarApp() {
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null)
   const [isLoginOpen, setIsLoginOpen] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [isRefreshing, setIsRefreshing] = useState(false)
   const router = useRouter()
 
   // Fetch latest approved schedule on mount
   useEffect(() => {
     fetchLatestSchedule()
   }, [])
+
+  // Set up automatic schedule refresh (polling every 10 seconds)
+  // This allows the user view to automatically update when admin generates new schedules
+  useScheduleRefresh({
+    enabled: true,
+    interval: 10000, // 10 seconds
+    onRefresh: fetchLatestSchedule,
+  })
 
   const fetchLatestSchedule = async () => {
     try {
@@ -207,6 +217,15 @@ export default function CalendarApp() {
     router.push("/admin")
   }
 
+  const handleManualRefresh = async () => {
+    setIsRefreshing(true)
+    try {
+      await fetchLatestSchedule()
+    } finally {
+      setIsRefreshing(false)
+    }
+  }
+
   return (
     <div className="flex h-screen bg-background">
       <SidebarNavigation currentDate={currentDate} onSelectDate={setCurrentDate} view={view} onViewChange={setView} />
@@ -227,6 +246,16 @@ export default function CalendarApp() {
               </h2>
             </div>
             <div className="flex gap-2">
+              <Button
+                onClick={handleManualRefresh}
+                disabled={isRefreshing}
+                variant="ghost"
+                size="icon"
+                className="hover:bg-muted text-muted-foreground"
+                title="Refresh schedule"
+              >
+                <RotateCw className={cn("w-4 h-4", isRefreshing && "animate-spin")} />
+              </Button>
               <Button
                 onClick={handlePreviousWeek}
                 variant="ghost"
