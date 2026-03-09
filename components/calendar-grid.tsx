@@ -1,7 +1,7 @@
 "use client"
 
 import type { CalendarEvent } from "@/app/page"
-import { getMonthDays, getWeekDays } from "@/lib/date-utils"
+import { getMonthDays, getWeekDays, getWeekDaysNoSunday } from "@/lib/date-utils"
 import { cn } from "@/lib/utils"
 
 interface CalendarGridProps {
@@ -14,7 +14,7 @@ interface CalendarGridProps {
 
 export default function CalendarGrid({ currentDate, events, view, onSelectEvent, onSelectDate }: CalendarGridProps) {
   const monthDays = getMonthDays(currentDate)
-  const weekDays = getWeekDays(currentDate)
+  const weekDays = getWeekDaysNoSunday(currentDate)  // Monday to Saturday only
 
   const getEventsForDate = (date: Date) => {
     return events.filter((event) => {
@@ -30,19 +30,21 @@ export default function CalendarGrid({ currentDate, events, view, onSelectEvent,
   const today = new Date()
 
   if (view === "month") {
-    const currentMonthDays = monthDays.filter((date) => date.getMonth() === currentDate.getMonth())
+    const currentMonthDays = monthDays.filter((date) => 
+      date.getMonth() === currentDate.getMonth() && date.getDay() !== 0  // Exclude Sundays
+    )
 
     return (
       <div className="p-8">
-        <div className="grid grid-cols-7 gap-1 mb-1">
-          {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
+        <div className="grid grid-cols-6 gap-1 mb-1">
+          {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
             <div key={day} className="text-xs font-semibold text-muted-foreground text-center py-4">
               {day}
             </div>
           ))}
         </div>
-        <div className="grid grid-cols-7 gap-1">
-          {Array.from({ length: monthDays[0].getDay() }).map((_, index) => (
+        <div className="grid grid-cols-6 gap-1">
+          {Array.from({ length: monthDays[0].getDay() === 0 ? 6 : monthDays[0].getDay() - 1 }).map((_, index) => (
             <div key={`empty-${index}`} className="min-h-32 p-3 rounded border border-border/0 bg-transparent" />
           ))}
           {currentMonthDays.map((date, index) => {
@@ -228,14 +230,16 @@ export default function CalendarGrid({ currentDate, events, view, onSelectEvent,
                               >
                                 <div className="font-medium truncate">{event.title}</div>
                                 <div className="text-xs opacity-90 truncate">
-                                  {event.startTime.toLocaleTimeString([], {
-                                    hour: '2-digit',
+                                  {event.startTime.toLocaleTimeString('en-US', {
+                                    hour: 'numeric',
                                     minute: '2-digit',
+                                    hour12: true,
                                   })}{' '}
                                   -{' '}
-                                  {event.endTime.toLocaleTimeString([], {
-                                    hour: '2-digit',
+                                  {event.endTime.toLocaleTimeString('en-US', {
+                                    hour: 'numeric',
                                     minute: '2-digit',
+                                    hour12: true,
                                   })}
                                 </div>
                               </div>

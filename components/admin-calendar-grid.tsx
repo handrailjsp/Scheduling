@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { getWeekDays } from "@/lib/date-utils"
+import { getWeekDaysNoSunday } from "@/lib/date-utils"
 import { Button } from "@/components/ui/button"
 import { ChevronLeft, ChevronRight, Plus, Trash2 } from "lucide-react"
 import type { Professor, TimetableSlot } from "@/app/admin/page"
@@ -27,7 +27,7 @@ export default function AdminCalendarGrid({
   currentDate,
   onDateChange,
 }: AdminCalendarGridProps) {
-  const weekDays = getWeekDays(currentDate)
+  const weekDays = getWeekDaysNoSunday(currentDate)  // Monday to Saturday only
   const hours = Array.from({ length: 15 }, (_, i) => i + 7) // 7am to 9pm
 
   const formatHourLabel = (hour: number): string => {
@@ -106,7 +106,7 @@ export default function AdminCalendarGrid({
           </Button>
           <h3 className="text-sm font-medium text-muted-foreground min-w-40">
             {weekDays[0].toLocaleDateString("en-US", { month: "short", day: "numeric" })} -{" "}
-            {weekDays[6].toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+            {weekDays[5].toLocaleDateString("en-US", { month: "short", day: "numeric" })}
           </h3>
           <Button onClick={handleNextWeek} variant="ghost" size="icon">
             <ChevronRight className="w-4 h-4" />
