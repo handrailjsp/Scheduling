@@ -30,6 +30,21 @@ export function getWeekDays(date: Date): Date[] {
   return days
 }
 
+export function getWeekDaysNoSunday(date: Date): Date[] {
+  const startOfWeek = new Date(date)
+  startOfWeek.setDate(date.getDate() - date.getDay())
+
+  const days: Date[] = []
+  // Skip Sunday (i=0), start from Monday (i=1) and go through Saturday (i=6)
+  for (let i = 1; i < 7; i++) {
+    const dayDate = new Date(startOfWeek)
+    dayDate.setDate(startOfWeek.getDate() + i)
+    days.push(dayDate)
+  }
+
+  return days
+}
+
 export function getDaysInMonth(date: Date): number {
   return new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate()
 }

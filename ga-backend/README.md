@@ -134,6 +134,8 @@ POST /api/generate-schedule?runs=3
 ```
 **Auto-Optimize Mode**: Generates multiple schedules, picks the fairest, and applies it automatically.
 
+The endpoint now accepts an optional `clear` flag (`?clear=true`); when provided the live `timetable_slots` table is wiped before the genetic algorithm begins. This is useful when you want the GA to run on a fresh set of manually-entered slots (see admin dashboard behaviour).
+
 **Parameters:**
 - `runs` (optional): Number of GA runs (1-10, default=3)
 

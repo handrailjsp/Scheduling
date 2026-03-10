@@ -2,7 +2,24 @@
 
 ## Overview
 This implementation adds real-time schedule updates to the user dashboard when the admin generates optimized schedules. The timetable now correctly displays class durations across multiple hourly blocks with proportional highlighting.
+### 4.2 Additional Synchronization Logic
 
+To address an issue where the GA would sometimes re‑create an old schedule even after the admin had cleared out the calendar, the admin dashboard now treats the local timetable as the single source of truth.
+
+* A global `timetableSlots` state holds every slot for every professor.
+* All CRUD handlers update the database _and_ refresh the global state.
+* A new `syncTimetable()` helper wipes the `timetable_slots` table and re‑inserts whatever is currently present in the UI before the genetic algorithm is triggered.
+* The "Generate Schedule" button always runs `syncTimetable()` first, eliminating stale entries and guaranteeing that the GA works from the exact inputs the administrator sees.
+* A "Clear Timetable" button has been added to the admin panel for one‑click removal of the entire schedule.
+* When a new schedule is applied the dashboard writes a timestamp to `localStorage` and the public calendar listens for that storage event; the user view refreshes instantly (with a 10‑second polling fallback).
+
+These changes ensure that:
+
+1. Clicking **Generate Schedule** always produces a brand‑new result based solely on the current admin timetable.
+2. Previous schedules are completely removed from the database prior to optimization.
+3. Users on the public site see updates without needing to manually refresh.
+
+(Existing notes about multi‑block rendering, hooks, etc. remain unchanged.)
 ## Changes Made
 
 ### 1. **New Custom Hook: `hooks/use-schedule-refresh.ts`**
