@@ -1,11 +1,17 @@
 "use client"
 
 import type React from "react"
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
-import { X } from "lucide-react"
+import { X, Snowflake, MapPin } from "lucide-react"
 import DateTimePicker from "./date-time-picker"
 import type { Professor, TimetableSlot } from "@/app/admin/page"
+import { supabase } from "@/lib/supabase"
+
+interface RoomData {
+  id: string
+  is_ac: boolean
+}
 
 interface TimetableSlotModalProps {
   professor: Professor
@@ -34,53 +40,49 @@ export default function TimetableSlotModal({
     needsAC: existingSlot?.needsAC || false,
   })
 
-  const [slotDate, setSlotDate] = useState(() => {
-    if (existingSlot) {
-      const date = new Date(selectedDate)
-      date.setHours(0, 0, 0, 0)
-      return date
+  const [availableRooms, setAvailableRooms] = useState<RoomData[]>([])
+  const [isLoadingRooms, setIsLoadingRooms] = useState(true)
+
+  useEffect(() => {
+    async function fetchRooms() {
+      setIsLoadingRooms(true)
+      const { data, error } = await supabase
+        .from("rooms")
+        .select("id, is_ac")
+        .eq("is_faculty", false)
+        .order("id", { ascending: true })
+
+      if (!error && data) {
+        setAvailableRooms(data)
+      }
+      setIsLoadingRooms(false)
     }
-    const date = new Date(selectedDate)
-    date.setHours(0, 0, 0, 0)
-    return date
+    fetchRooms()
+  }, [])
+
+  // Safely initialize local date state
+  const [slotDate, setSlotDate] = useState(() => {
+    const d = selectedDate instanceof Date ? new Date(selectedDate) : new Date()
+    d.setHours(0, 0, 0, 0)
+    return d
   })
 
   const [startTime, setStartTime] = useState(() => {
-    if (existingSlot) {
-      return `${String(existingSlot.hour).padStart(2, "0")}:00`
-    }
-    return `${String(hour).padStart(2, "0")}:00`
+    return existingSlot 
+      ? `${String(existingSlot.hour).padStart(2, "0")}:00` 
+      : `${String(hour).padStart(2, "0")}:00`
   })
 
   const [endTime, setEndTime] = useState(() => {
-    if (existingSlot) {
-      return `${String(existingSlot.endHour).padStart(2, "0")}:00`
-    }
-    return `${String(hour + 1).padStart(2, "0")}:00`
-  })
-
-  const formattedDate = slotDate.toLocaleDateString("en-US", {
-    weekday: "long",
-    month: "short",
-    day: "numeric",
+    return existingSlot 
+      ? `${String(existingSlot.endHour).padStart(2, "0")}:00` 
+      : `${String(hour + 1).padStart(2, "0")}:00`
   })
 
   const handlePreviewUpdate = (date: Date, newStartTime: string, newEndTime: string) => {
     const startHour = Number.parseInt(newStartTime.split(":")[0])
     const endHour = Number.parseInt(newEndTime.split(":")[0])
-
     const calculatedDayOfWeek = date.getDay()
-
-    console.log(
-      "[v0] Preview update - Selected date:",
-      date.toLocaleDateString(),
-      "DayOfWeek from getDay():",
-      calculatedDayOfWeek,
-      "Start hour:",
-      startHour,
-      "End hour:",
-      endHour,
-    )
     onPreviewUpdate?.(calculatedDayOfWeek, startHour, endHour)
   }
 
@@ -88,58 +90,37 @@ export default function TimetableSlotModal({
     e.preventDefault()
     if (formData.subject && formData.room) {
       const selectedDayOfWeek = slotDate.getDay()
+      const startH = Number.parseInt(startTime.split(":")[0])
+      const endH = Number.parseInt(endTime.split(":")[0])
 
-      const startHour = Number.parseInt(startTime.split(":")[0])
-      const endHour = Number.parseInt(endTime.split(":")[0])
-
-      // Validate time constraints
-      if (endHour <= startHour) {
+      if (endH <= startH) {
         alert("End time must be after start time")
-        console.error("[v0] Validation failed - End hour must be after start hour", {
-          startHour,
-          endHour,
-          startTime,
-          endTime,
-        })
         return
       }
-
-      console.log(`[v0] Form submission - ${slotId ? "Updating" : "Creating"} slot with validated data`, {
-        professorId: professor.id,
-        dayOfWeek: selectedDayOfWeek,
-        hour: startHour,
-        endHour: endHour,
-        subject: formData.subject,
-        room: formData.room,
-        needsAC: formData.needsAC,
-        date: slotDate.toLocaleDateString(),
-        timeRange: `${startTime} - ${endTime}`,
-      })
 
       onSubmit({
         professorId: professor.id,
         dayOfWeek: selectedDayOfWeek,
-        hour: startHour,
-        endHour: endHour,
+        hour: startH,
+        endHour: endH,
         subject: formData.subject,
         room: formData.room,
         needsAC: formData.needsAC,
       })
-
-      setFormData({ subject: "", room: "", needsAC: false })
       onClose()
     } else {
       alert("Subject and Room are required")
-      console.warn("[v0] Form validation failed - Subject and Room are required")
     }
   }
 
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
-      <div className="bg-card border border-border rounded-lg w-96 shadow-xl">
+      <div className="bg-card border border-border rounded-lg w-[400px] shadow-2xl">
         <div className="flex items-center justify-between px-8 py-6 border-b border-border">
-          <h2 className="text-xl font-semibold text-foreground">{slotId ? "Edit Class" : "Add Class"}</h2>
-          <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition p-1">
+          <h2 className="text-xl font-bold text-foreground">
+            {slotId ? "Update Schedule" : "Add New Class"}
+          </h2>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground p-1 transition">
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -155,47 +136,58 @@ export default function TimetableSlotModal({
             onPreviewUpdate={handlePreviewUpdate}
           />
 
-          <div>
-            <label className="text-sm font-medium text-foreground block mb-3">Subject</label>
+          <div className="space-y-2">
+            <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Subject Name</label>
             <input
               type="text"
+              required
               value={formData.subject}
               onChange={(e) => setFormData({ ...formData, subject: e.target.value })}
-              className="w-full px-4 py-3 border border-border rounded-lg bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-transparent"
-              placeholder="e.g., Data Structures"
-              autoFocus
+              className="w-full px-4 py-3 border border-border rounded-lg bg-background text-sm focus:ring-2 focus:ring-primary/20"
+              placeholder="e.g. Computer Graphics"
             />
           </div>
 
-          <div>
-            <label className="text-sm font-medium text-foreground block mb-3">Room</label>
-            <input
-              type="text"
-              value={formData.room}
-              onChange={(e) => setFormData({ ...formData, room: e.target.value })}
-              className="w-full px-4 py-3 border border-border rounded-lg bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-transparent"
-              placeholder="e.g., 101"
-            />
+          <div className="space-y-2">
+            <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Location</label>
+            <div className="relative">
+              <select
+                required
+                value={formData.room}
+                disabled={isLoadingRooms}
+                onChange={(e) => {
+                  const rId = e.target.value
+                  const room = availableRooms.find((r) => r.id === rId)
+                  setFormData({ ...formData, room: rId, needsAC: room?.is_ac ? true : formData.needsAC })
+                }}
+                className="w-full px-4 py-3 border border-border rounded-lg bg-background text-sm appearance-none cursor-pointer"
+              >
+                <option value="">{isLoadingRooms ? "Loading Rooms..." : "Choose Room"}</option>
+                {availableRooms.map((r) => (
+                  <option key={r.id} value={r.id}>Room {r.id} {r.is_ac ? "(AC ❄️)" : ""}</option>
+                ))}
+              </select>
+              <MapPin className="absolute right-4 top-3.5 w-4 h-4 text-muted-foreground pointer-events-none" />
+            </div>
           </div>
 
-          <label className="flex items-center gap-3 cursor-pointer group">
+          <label className="flex items-center gap-3 p-4 border border-border rounded-lg cursor-pointer hover:bg-muted/30 transition">
             <input
               type="checkbox"
               checked={formData.needsAC}
               onChange={(e) => setFormData({ ...formData, needsAC: e.target.checked })}
-              className="w-4 h-4 rounded border border-border bg-background cursor-pointer accent-primary"
+              className="w-4 h-4 accent-primary"
             />
-            <span className="text-sm text-muted-foreground group-hover:text-foreground transition font-medium">
-              Requires Air Conditioning
-            </span>
+            <div className="flex items-center gap-2">
+              <Snowflake className={`w-4 h-4 ${formData.needsAC ? "text-blue-500" : "text-muted-foreground"}`} />
+              <span className="text-sm font-semibold">Requires Air Conditioning</span>
+            </div>
           </label>
 
           <div className="flex gap-3 pt-4">
-            <Button onClick={onClose} variant="outline" className="flex-1 bg-transparent">
-              Cancel
-            </Button>
-            <Button type="submit" className="flex-1">
-              Save
+            <Button onClick={onClose} type="button" variant="ghost" className="flex-1">Discard</Button>
+            <Button type="submit" className="flex-1 shadow-lg shadow-primary/20">
+              {slotId ? "Apply Changes" : "Confirm Slot"}
             </Button>
           </div>
         </form>

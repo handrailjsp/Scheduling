@@ -3,7 +3,7 @@
 import type React from "react"
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
-// Make sure this path matches where you defined your Supabase client
+
 import { createClient } from "@/lib/supabase/client"
 
 interface LoginModalProps {
@@ -12,7 +12,7 @@ interface LoginModalProps {
 }
 
 export default function LoginModal({ onSuccess, onClose }: LoginModalProps) {
-  // Supabase Auth uses email; changed from 'username' for compatibility
+  
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [error, setError] = useState("")
@@ -26,7 +26,7 @@ export default function LoginModal({ onSuccess, onClose }: LoginModalProps) {
     setLoading(true)
 
     try {
-      // 1. Authenticate the user with Supabase Auth
+      
       const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
         email,
         password,
@@ -34,21 +34,19 @@ export default function LoginModal({ onSuccess, onClose }: LoginModalProps) {
 
       if (authError) throw new Error(authError.message)
 
-      // 2. Fetch the admin role from your 'admins' table
-      // Because of your RLS policy (auth.uid() = id), this will only return 
-      // data if the logged-in user's UUID exists in the 'admins' table.
+      
       const { data: adminRecord, error: dbError } = await supabase
         .from('admins')
         .select('role')
         .single()
 
       if (dbError || !adminRecord) {
-        // Log them out if they aren't in the admin table to keep the session clean
+        
         await supabase.auth.signOut()
         throw new Error("Access denied: You are not registered as an administrator.")
       }
 
-      // Success! User is authenticated and verified in the database
+      
       onSuccess()
     } catch (err: any) {
       setError(err.message || "Invalid credentials")
