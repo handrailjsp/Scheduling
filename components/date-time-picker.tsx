@@ -13,6 +13,8 @@ interface DateTimePickerProps {
   onStartTimeChange: (time: string) => void
   onEndTimeChange: (time: string) => void
   onPreviewUpdate?: (date: Date, startTime: string, endTime: string) => void
+  minHour?: number
+  maxHour?: number
 }
 
 export default function DateTimePicker({
@@ -23,6 +25,8 @@ export default function DateTimePicker({
   onStartTimeChange,
   onEndTimeChange,
   onPreviewUpdate,
+  minHour,
+  maxHour,
 }: DateTimePickerProps) {
   const validDate = date instanceof Date && !isNaN(date.getTime()) ? date : new Date()
   const validStartTime = typeof startTime === "string" && startTime.match(/^\d{2}:\d{2}$/) ? startTime : "09:00"
@@ -43,7 +47,7 @@ export default function DateTimePicker({
     return hour >= 12 ? "PM" : "AM"
   })
 
-  const [timeError, setTimeError] = useState<"start" | "end" | null>(null)
+  const [timeError, setTimeError] = useState<"start" | "end" | "range" | null>(null)
   const [errorFieldsFlashing, setErrorFieldsFlashing] = useState<("start" | "end")[]>([])
 
   const [startHourInput, setStartHourInput] = useState<string>(() => {
@@ -82,11 +86,8 @@ export default function DateTimePicker({
     let hour = Number.parseInt(parts[0]) || 0
     const minutes = Number.parseInt(parts[1]) || 0
 
-    // Validate inputs
     if (hour < 1 || hour > 12) hour = 12
-    if (minutes < 0 || minutes > 59) return "00:00"
-
-    // Convert 12-hour to 24-hour format
+    
     if (period === "PM" && hour !== 12) {
       hour += 12
     } else if (period === "AM" && hour === 12) {
@@ -100,8 +101,6 @@ export default function DateTimePicker({
     const parts = time24.split(":")
     const hours = Number.parseInt(parts[0]) || 0
     const minutes = Number.parseInt(parts[1]) || 0
-
-    // Create a new date to avoid mutation
     const date = new Date(dateObj)
     date.setHours(hours, minutes, 0, 0)
     return date.getTime()
@@ -114,23 +113,18 @@ export default function DateTimePicker({
     checkStartPeriod: "AM" | "PM",
     checkEndPeriod: "AM" | "PM",
   ): boolean => {
-    // Validate time format first
-    if (!checkStartTime.match(/^\d{2}:\d{2}$/) || !checkEndTime.match(/^\d{2}:\d{2}$/)) {
-      return false
-    }
-
     const start24 = to24Hour(checkStartTime, checkStartPeriod)
     const end24 = to24Hour(checkEndTime, checkEndPeriod)
 
-    // Validate conversion results
-    if (!start24.match(/^\d{2}:\d{2}$/) || !end24.match(/^\d{2}:\d{2}$/)) {
-      return false
-    }
+    const startHourNum = Number.parseInt(start24.split(":")[0])
+    const endHourNum = Number.parseInt(end24.split(":")[0])
+
+    if (minHour !== undefined && (startHourNum < minHour || endHourNum < minHour)) return false
+    if (maxHour !== undefined && (startHourNum >= maxHour || endHourNum > maxHour)) return false
 
     const startTimestamp = getFullTimestamp(checkDate, start24)
     const endTimestamp = getFullTimestamp(checkDate, end24)
 
-    // End time must be strictly after start time
     return endTimestamp > startTimestamp
   }
 
@@ -144,22 +138,18 @@ export default function DateTimePicker({
     const start24 = to24Hour(newStartTime, newStartPeriod)
     const end24 = to24Hour(newEndTime, newEndPeriod)
 
-    // Only update preview if times are valid
     if (isValidTimeRange(newDate, newStartTime, newEndTime, newStartPeriod, newEndPeriod)) {
       setTimeError(null)
       setErrorFieldsFlashing([])
       onPreviewUpdate?.(newDate, start24, end24)
     } else {
-      // Mark end time as error since it's invalid relative to start
-      setTimeError("end")
-      setErrorFieldsFlashing(["start", "end"])
-      setTimeout(() => setErrorFieldsFlashing([]), 600)
+      setTimeError("range")
     }
   }
 
   const handleConfirm = () => {
     if (!isValidTimeRange(tempDate, tempStartTime, tempEndTime, startPeriod, endPeriod)) {
-      setTimeError("end")
+      setTimeError("range")
       setErrorFieldsFlashing(["start", "end"])
       setTimeout(() => setErrorFieldsFlashing([]), 600)
       return
@@ -168,48 +158,30 @@ export default function DateTimePicker({
     const start24 = to24Hour(tempStartTime, startPeriod)
     const end24 = to24Hour(tempEndTime, endPeriod)
 
-    console.log(
-      "[v0] Confirming times - Input: Start",
-      tempStartTime,
-      startPeriod,
-      "-> Output:",
-      start24,
-      "| End",
-      tempEndTime,
-      endPeriod,
-      "->",
-      end24,
-    )
-
-    // Persist changes to parent state
     onDateChange(tempDate)
     onStartTimeChange(start24)
     onEndTimeChange(end24)
     setIsExpanded(false)
     setTimeError(null)
-    setErrorFieldsFlashing([])
   }
 
   const handleCancel = () => {
     setTempDate(validDate)
-    setTempStartTime(validStartTime)
-    setTempEndTime(validEndTime)
+    const startParts = validStartTime.split(":")
+    const endParts = validEndTime.split(":")
+    
+    const sH = Number.parseInt(startParts[0])
+    setStartHourInput(String(sH === 0 ? 12 : sH > 12 ? sH - 12 : sH))
+    setStartMinutesInput(startParts[1])
+    setStartPeriod(sH >= 12 ? "PM" : "AM")
 
-    const startHour = Number.parseInt(validStartTime.split(":")[0])
-    const startDisplayHour = startHour === 0 ? 12 : startHour > 12 ? startHour - 12 : startHour
-    setStartHourInput(String(startDisplayHour))
-    setStartMinutesInput(validStartTime.split(":")[1] || "00")
+    const eH = Number.parseInt(endParts[0])
+    setEndHourInput(String(eH === 0 ? 12 : eH > 12 ? eH - 12 : eH))
+    setEndMinutesInput(endParts[1])
+    setEndPeriod(eH >= 12 ? "PM" : "AM")
 
-    const endHour = Number.parseInt(validEndTime.split(":")[0])
-    const endDisplayHour = endHour === 0 ? 12 : endHour > 12 ? endHour - 12 : endHour
-    setEndHourInput(String(endDisplayHour))
-    setEndMinutesInput(validEndTime.split(":")[1] || "00")
-
-    setStartPeriod(Number.parseInt(validStartTime.split(":")[0]) >= 12 ? "PM" : "AM")
-    setEndPeriod(Number.parseInt(validEndTime.split(":")[0]) >= 12 ? "PM" : "AM")
     setIsExpanded(false)
     setTimeError(null)
-    setErrorFieldsFlashing([])
   }
 
   const dateInputValue = (() => {
@@ -219,22 +191,13 @@ export default function DateTimePicker({
     return `${year}-${month}-${day}`
   })()
 
-  const handleTimeInputFocus = (e: React.FocusEvent<HTMLInputElement>) => {
-    e.target.select()
-  }
-
   const handleStartHourChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value.replace(/\D/g, "").slice(0, 2)
-
     setStartHourInput(value)
-
     if (value === "") return
-
-    const numValue = Number.parseInt(value)
-
-    if (numValue >= 1 && numValue <= 12) {
-      const paddedValue = String(numValue).padStart(2, "0")
-      const newTime = `${paddedValue}:${startMinutesInput.padStart(2, "0")}`
+    const num = Number.parseInt(value)
+    if (num >= 1 && num <= 12) {
+      const newTime = `${String(num).padStart(2, "0")}:${startMinutesInput}`
       setTempStartTime(newTime)
       updatePreview(tempDate, newTime, tempEndTime, startPeriod, endPeriod)
     }
@@ -242,21 +205,10 @@ export default function DateTimePicker({
 
   const handleStartMinutesChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value.replace(/\D/g, "").slice(0, 2)
-
     setStartMinutesInput(value)
-
-    if (value === "") {
-      setStartMinutesInput("00")
-      const newTime = `${startHourInput.padStart(2, "0")}:00`
-      setTempStartTime(newTime)
-      updatePreview(tempDate, newTime, tempEndTime, startPeriod, endPeriod)
-      return
-    }
-
-    const numValue = Number.parseInt(value)
-    if (numValue <= 59) {
-      const paddedValue = String(numValue).padStart(2, "0")
-      const newTime = `${startHourInput.padStart(2, "0")}:${paddedValue}`
+    const num = value === "" ? 0 : Number.parseInt(value)
+    if (num <= 59) {
+      const newTime = `${startHourInput.padStart(2, "0")}:${String(num).padStart(2, "0")}`
       setTempStartTime(newTime)
       updatePreview(tempDate, newTime, tempEndTime, startPeriod, endPeriod)
     }
@@ -264,16 +216,11 @@ export default function DateTimePicker({
 
   const handleEndHourChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value.replace(/\D/g, "").slice(0, 2)
-
     setEndHourInput(value)
-
     if (value === "") return
-
-    const numValue = Number.parseInt(value)
-
-    if (numValue >= 1 && numValue <= 12) {
-      const paddedValue = String(numValue).padStart(2, "0")
-      const newTime = `${paddedValue}:${endMinutesInput.padStart(2, "0")}`
+    const num = Number.parseInt(value)
+    if (num >= 1 && num <= 12) {
+      const newTime = `${String(num).padStart(2, "0")}:${endMinutesInput}`
       setTempEndTime(newTime)
       updatePreview(tempDate, tempStartTime, newTime, startPeriod, endPeriod)
     }
@@ -281,45 +228,18 @@ export default function DateTimePicker({
 
   const handleEndMinutesChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value.replace(/\D/g, "").slice(0, 2)
-
     setEndMinutesInput(value)
-
-    if (value === "") {
-      setEndMinutesInput("00")
-      const newTime = `${endHourInput.padStart(2, "0")}:00`
-      setTempEndTime(newTime)
-      updatePreview(tempDate, tempStartTime, newTime, startPeriod, endPeriod)
-      return
-    }
-
-    const numValue = Number.parseInt(value)
-    if (numValue <= 59) {
-      const paddedValue = String(numValue).padStart(2, "0")
-      const newTime = `${endHourInput.padStart(2, "0")}:${paddedValue}`
+    const num = value === "" ? 0 : Number.parseInt(value)
+    if (num <= 59) {
+      const newTime = `${endHourInput.padStart(2, "0")}:${String(num).padStart(2, "0")}`
       setTempEndTime(newTime)
       updatePreview(tempDate, tempStartTime, newTime, startPeriod, endPeriod)
     }
-  }
-
-  const handleStartPeriodChange = (newPeriod: "AM" | "PM") => {
-    setStartPeriod(newPeriod)
-    updatePreview(tempDate, tempStartTime, tempEndTime, newPeriod, endPeriod)
-  }
-
-  const handleEndPeriodChange = (newPeriod: "AM" | "PM") => {
-    setEndPeriod(newPeriod)
-    updatePreview(tempDate, tempStartTime, tempEndTime, startPeriod, newPeriod)
-  }
-
-  const handleDateChange = (newDate: Date) => {
-    setTempDate(newDate)
-    updatePreview(newDate, tempStartTime, tempEndTime, startPeriod, endPeriod)
   }
 
   if (isExpanded) {
     return (
       <div className="space-y-4 p-4 bg-background border border-border rounded-lg">
-        {/* Header */}
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-semibold text-foreground">Edit Date & Time</h3>
           <button onClick={handleCancel} className="text-muted-foreground hover:text-foreground transition p-1">
@@ -327,7 +247,6 @@ export default function DateTimePicker({
           </button>
         </div>
 
-        {/* Date Section */}
         <div className="space-y-3">
           <div className="flex items-center gap-3">
             <Calendar className="w-5 h-5 text-primary flex-shrink-0" />
@@ -341,7 +260,8 @@ export default function DateTimePicker({
                 onChange={(e) => {
                   const newDate = new Date(e.target.value + "T00:00:00")
                   if (!isNaN(newDate.getTime())) {
-                    handleDateChange(newDate)
+                    setTempDate(newDate)
+                    updatePreview(newDate, tempStartTime, tempEndTime, startPeriod, endPeriod)
                   }
                 }}
                 className="w-full px-3 py-2 border border-border rounded-lg bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
@@ -350,39 +270,39 @@ export default function DateTimePicker({
           </div>
         </div>
 
-        {/* Time Section */}
         <div className="space-y-3">
           <div className="flex items-start gap-3">
             <Clock className="w-5 h-5 text-primary flex-shrink-0 mt-8" />
             <div className="flex-1 space-y-4">
               <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide block">Time</label>
 
-              {/* Start Time */}
               <div className="space-y-2">
                 <p className="text-xs font-medium text-muted-foreground">Start Time</p>
                 <div className="flex items-center gap-2">
                   <input
                     type="text"
-                    placeholder="HH"
                     value={startHourInput}
                     onChange={handleStartHourChange}
-                    onFocus={handleTimeInputFocus}
+                    onFocus={(e) => e.target.select()}
                     maxLength={2}
                     className="w-16 px-2 py-2 border border-border rounded-lg bg-background text-foreground text-center focus:outline-none focus:ring-2 focus:ring-primary/30 font-mono text-base"
                   />
                   <span className="text-muted-foreground">:</span>
                   <input
                     type="text"
-                    placeholder="MM"
                     value={startMinutesInput}
                     onChange={handleStartMinutesChange}
-                    onFocus={handleTimeInputFocus}
+                    onFocus={(e) => e.target.select()}
                     maxLength={2}
                     className="w-16 px-2 py-2 border border-border rounded-lg bg-background text-foreground text-center focus:outline-none focus:ring-2 focus:ring-primary/30 font-mono text-base"
                   />
                   <select
                     value={startPeriod}
-                    onChange={(e) => handleStartPeriodChange(e.target.value as "AM" | "PM")}
+                    onChange={(e) => {
+                        const p = e.target.value as "AM" | "PM"
+                        setStartPeriod(p)
+                        updatePreview(tempDate, tempStartTime, tempEndTime, p, endPeriod)
+                    }}
                     className="px-3 py-2 border border-border rounded-lg bg-background text-foreground text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/30 cursor-pointer"
                   >
                     <option value="AM">AM</option>
@@ -391,63 +311,47 @@ export default function DateTimePicker({
                 </div>
               </div>
 
-              {/* End Time - with red flash on validation error */}
               <div className="space-y-2">
                 <p className="text-xs font-medium text-muted-foreground">End Time</p>
-                <div
-                  className={`flex items-center gap-2 p-2 rounded-lg transition-all duration-200 ${
-                    errorFieldsFlashing.includes("end") ? "bg-red-100 border border-red-400" : ""
-                  }`}
-                >
+                <div className={`flex items-center gap-2 p-2 rounded-lg transition-all duration-200 ${errorFieldsFlashing.includes("end") ? "bg-red-100 border border-red-400" : ""}`}>
                   <input
                     type="text"
-                    placeholder="HH"
                     value={endHourInput}
                     onChange={handleEndHourChange}
-                    onFocus={handleTimeInputFocus}
+                    onFocus={(e) => e.target.select()}
                     maxLength={2}
-                    className={`w-16 px-2 py-2 border rounded-lg bg-background text-foreground text-center focus:outline-none focus:ring-2 font-mono text-base transition-colors ${
-                      errorFieldsFlashing.includes("end")
-                        ? "border-red-400 focus:ring-red-300"
-                        : "border-border focus:ring-primary/30"
-                    }`}
+                    className="w-16 px-2 py-2 border border-border rounded-lg bg-background text-foreground text-center focus:outline-none focus:ring-2 focus:ring-primary/30 font-mono text-base"
                   />
                   <span className="text-muted-foreground">:</span>
                   <input
                     type="text"
-                    placeholder="MM"
                     value={endMinutesInput}
                     onChange={handleEndMinutesChange}
-                    onFocus={handleTimeInputFocus}
+                    onFocus={(e) => e.target.select()}
                     maxLength={2}
-                    className={`w-16 px-2 py-2 border rounded-lg bg-background text-foreground text-center focus:outline-none focus:ring-2 font-mono text-base transition-colors ${
-                      errorFieldsFlashing.includes("end")
-                        ? "border-red-400 focus:ring-red-300"
-                        : "border-border focus:ring-primary/30"
-                    }`}
+                    className="w-16 px-2 py-2 border border-border rounded-lg bg-background text-foreground text-center focus:outline-none focus:ring-2 focus:ring-primary/30 font-mono text-base"
                   />
                   <select
                     value={endPeriod}
-                    onChange={(e) => handleEndPeriodChange(e.target.value as "AM" | "PM")}
-                    className={`px-3 py-2 border rounded-lg bg-background text-foreground text-sm font-medium focus:outline-none focus:ring-2 cursor-pointer transition-colors ${
-                      errorFieldsFlashing.includes("end")
-                        ? "border-red-400 focus:ring-red-300"
-                        : "border-border focus:ring-primary/30"
-                    }`}
+                    onChange={(e) => {
+                        const p = e.target.value as "AM" | "PM"
+                        setEndPeriod(p)
+                        updatePreview(tempDate, tempStartTime, tempEndTime, startPeriod, p)
+                    }}
+                    className="px-3 py-2 border border-border rounded-lg bg-background text-foreground text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/30 cursor-pointer"
                   >
                     <option value="AM">AM</option>
                     <option value="PM">PM</option>
                   </select>
                 </div>
-                {timeError === "end" && (
-                  <p className="text-xs text-red-600 font-medium">End time must be after start time</p>
+                {timeError === "range" && (
+                  <p className="text-xs text-red-600 font-medium">Invalid time range or bounds</p>
                 )}
               </div>
             </div>
           </div>
         </div>
 
-        {/* Actions */}
         <div className="flex gap-2 pt-3 border-t border-border">
           <Button onClick={handleCancel} variant="outline" className="flex-1 bg-transparent">
             Cancel

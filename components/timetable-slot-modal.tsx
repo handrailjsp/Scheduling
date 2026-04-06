@@ -1,17 +1,11 @@
 "use client"
 
 import type React from "react"
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { Button } from "@/components/ui/button"
-import { X, Snowflake, MapPin } from "lucide-react"
+import { X, Snowflake } from "lucide-react"
 import DateTimePicker from "./date-time-picker"
 import type { Professor, TimetableSlot } from "@/app/admin/page"
-import { supabase } from "@/lib/supabase"
-
-interface RoomData {
-  id: string
-  is_ac: boolean
-}
 
 interface TimetableSlotModalProps {
   professor: Professor
@@ -22,6 +16,8 @@ interface TimetableSlotModalProps {
   onSubmit: (data: Omit<TimetableSlot, "id">) => void
   onClose: () => void
   onPreviewUpdate?: (dayOfWeek: number, startHour: number, endHour: number) => void
+  minHour: number
+  maxHour: number
 }
 
 export default function TimetableSlotModal({
@@ -33,34 +29,14 @@ export default function TimetableSlotModal({
   onSubmit,
   onClose,
   onPreviewUpdate,
+  minHour,
+  maxHour,
 }: TimetableSlotModalProps) {
   const [formData, setFormData] = useState({
     subject: existingSlot?.subject || "",
-    room: existingSlot?.room || "",
     needsAC: existingSlot?.needsAC || false,
   })
 
-  const [availableRooms, setAvailableRooms] = useState<RoomData[]>([])
-  const [isLoadingRooms, setIsLoadingRooms] = useState(true)
-
-  useEffect(() => {
-    async function fetchRooms() {
-      setIsLoadingRooms(true)
-      const { data, error } = await supabase
-        .from("rooms")
-        .select("id, is_ac")
-        .eq("is_faculty", false)
-        .order("id", { ascending: true })
-
-      if (!error && data) {
-        setAvailableRooms(data)
-      }
-      setIsLoadingRooms(false)
-    }
-    fetchRooms()
-  }, [])
-
-  // Safely initialize local date state
   const [slotDate, setSlotDate] = useState(() => {
     const d = selectedDate instanceof Date ? new Date(selectedDate) : new Date()
     d.setHours(0, 0, 0, 0)
@@ -88,7 +64,8 @@ export default function TimetableSlotModal({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    if (formData.subject && formData.room) {
+    // Removed room check since the button is gone
+    if (formData.subject) {
       const selectedDayOfWeek = slotDate.getDay()
       const startH = Number.parseInt(startTime.split(":")[0])
       const endH = Number.parseInt(endTime.split(":")[0])
@@ -104,12 +81,13 @@ export default function TimetableSlotModal({
         hour: startH,
         endHour: endH,
         subject: formData.subject,
-        room: formData.room,
+        // Passing a default or existing value so the backend/types don't break
+        room: existingSlot?.room || "TBD", 
         needsAC: formData.needsAC,
       })
       onClose()
     } else {
-      alert("Subject and Room are required")
+      alert("Subject is required")
     }
   }
 
@@ -134,6 +112,8 @@ export default function TimetableSlotModal({
             onStartTimeChange={setStartTime}
             onEndTimeChange={setEndTime}
             onPreviewUpdate={handlePreviewUpdate}
+            minHour={minHour}
+            maxHour={maxHour}
           />
 
           <div className="space-y-2">
@@ -148,28 +128,7 @@ export default function TimetableSlotModal({
             />
           </div>
 
-          <div className="space-y-2">
-            <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Location</label>
-            <div className="relative">
-              <select
-                required
-                value={formData.room}
-                disabled={isLoadingRooms}
-                onChange={(e) => {
-                  const rId = e.target.value
-                  const room = availableRooms.find((r) => r.id === rId)
-                  setFormData({ ...formData, room: rId, needsAC: room?.is_ac ? true : formData.needsAC })
-                }}
-                className="w-full px-4 py-3 border border-border rounded-lg bg-background text-sm appearance-none cursor-pointer"
-              >
-                <option value="">{isLoadingRooms ? "Loading Rooms..." : "Choose Room"}</option>
-                {availableRooms.map((r) => (
-                  <option key={r.id} value={r.id}>Room {r.id} {r.is_ac ? "(AC ❄️)" : ""}</option>
-                ))}
-              </select>
-              <MapPin className="absolute right-4 top-3.5 w-4 h-4 text-muted-foreground pointer-events-none" />
-            </div>
-          </div>
+          {/* Location section removed as requested */}
 
           <label className="flex items-center gap-3 p-4 border border-border rounded-lg cursor-pointer hover:bg-muted/30 transition">
             <input

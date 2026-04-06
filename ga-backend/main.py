@@ -1,11 +1,14 @@
-import time
-from fastapi import FastAPI
+"""
+main.py  —  EQ-Schedule FastAPI server
+"""
+
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from database import supabase, get_db_data, save_generated_schedule, get_timetable_slots
+import database
+from ga_engine import run_genetic_algorithm
 
-app = FastAPI()
+app = FastAPI(title="EQ-Schedule API", version="3.0")
 
-# Enable CORS for Next.js
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000"],
@@ -14,59 +17,100 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 @app.get("/")
 def root():
-    return {"status": "running", "engine": "Genetic Algorithm v1.0"}
+    return {"status": "running"}
+
+
+@app.get("/api/health")
+async def health():
+    """
+    Open http://localhost:8000/api/health in your browser to
+    confirm the backend can read your database correctly.
+    """
+    professors = database.get_all_professors()
+    rooms      = database.get_all_rooms()
+    slots      = database.get_all_timetable_slots()
+
+    issues = []
+    if not professors:
+        issues.append("No professors found")
+    if not rooms:
+        issues.append("No rooms found")
+    if not slots:
+        issues.append("No timetable slots — add subjects via Admin first")
+
+    return {
+        "status":           "ready" if not issues else "not_ready",
+        "issues":           issues,
+        "professors_count": len(professors),
+        "rooms_count":      len(rooms),
+        "slots_count":      len(slots),
+        "professors":       [{"id": str(p["id"]), "name": p["name"]} for p in professors],
+        "rooms":            [{"id": r["id"], "is_ac": r.get("is_ac")} for r in rooms],
+    }
+
 
 @app.get("/api/timetable")
 async def get_timetable():
-    """Endpoint for the Professor Dashboard to see the final schedule."""
-    data = get_timetable_slots()
-    return data
+    return database.get_timetable_slots()
+
 
 @app.get("/api/schedules")
 async def get_schedules():
-    """Endpoint to get history of GA runs."""
     try:
-        response = supabase.table("generated_schedules").select("*").order("created_at", desc=True).execute()
-        # Return in the structure the frontend expects: { success: true, data: [...] }
-        return {"success": True, "data": response.data}
+        res = (
+            database.supabase
+            .table("generated_schedules")
+            .select("*")
+            .order("created_at", desc=True)
+            .execute()
+        )
+        return {"success": True, "data": res.data}
     except Exception as e:
         return {"success": False, "message": str(e), "data": []}
 
+
 @app.post("/api/generate-schedule")
 async def generate_schedule(runs: int = 1):
-    """Trigger the GA optimization process."""
-    try:
-        # 1. Load data from DB
-        db_context = get_db_data()
-        
-        # 2. Simulate GA Processing (where your logic will go)
-        # For now, we simulate a successful run
-        time.sleep(1) 
-
-        # 3. Save the results
-        schedule_id, error = save_generated_schedule(
-            fitness_score=0.98,
-            hard_violations=0,
-            soft_score=94.5,
-            gini_workload=0.12,
-            notes=f"Admin triggered optimization: {runs} runs."
+    """
+    Triggers the GA. It reads your existing timetable_slots
+    and autonomously assigns day, hour, and room to each one.
+    """
+    slots = database.get_all_timetable_slots()
+    if not slots:
+        raise HTTPException(
+            status_code=400,
+            detail="No timetable slots found. Add subjects via Admin panel first."
         )
 
-        if error:
-            return {"success": False, "message": error}
+    best_result = None
+    for run_num in range(max(1, runs)):
+        print(f"\n>>> GA Run {run_num + 1} / {runs}")
+        result = run_genetic_algorithm()
+        if "error" in result:
+            print(f"    Run failed: {result['error']}")
+            continue
+        if best_result is None or result["fitness_score"] > best_result["fitness_score"]:
+            best_result = result
 
-        return {
-            "success": True,
-            "schedule_id": schedule_id,
-            "fitness_score": 0.98,
-            "hard_violations": 0,
-            "soft_score": 94.5,
-            "auto_approved": True
-        }
-    except Exception as e:
-        return {"success": False, "message": str(e)}
+    if best_result is None:
+        raise HTTPException(status_code=500, detail="GA failed — check terminal logs.")
+
+    return {
+        "success":         True,
+        "schedule_id":     best_result["schedule_id"],
+        "fitness_score":   best_result["fitness_score"],
+        "hard_violations": best_result["hard_violations"],
+        "soft_score":      best_result["soft_score"],
+        "gini_workload":   best_result["gini_workload"],
+        "gini_room_usage": best_result["gini_room_usage"],
+        "gini_ac_access":  best_result["gini_ac_access"],
+        "auto_approved":   best_result["hard_violations"] == 0,
+        "runs_completed":  runs,
+    }
+
 
 if __name__ == "__main__":
     import uvicorn
