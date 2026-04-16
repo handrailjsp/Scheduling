@@ -11,14 +11,9 @@ app = FastAPI(title="EQ-Schedule API", version="3.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "https://scheduling-s69x.vercel.app", 
-        "https://scheduling-s69x-git-main-joachimmsp-gmailcoms-projects.vercel.app",
-        "https://scheduling-s69x-fbensdb00-joachimmsp-gmailcoms-projects.vercel.app"
-    ],
-    allow_credentials=True,
-    allow_methods=["*"],
+    allow_origins=["*"],
+    allow_credentials=False, 
+    allow_methods=["GET", "POST", "OPTIONS"], 
     allow_headers=["*"],
 )
 
