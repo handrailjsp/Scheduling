@@ -152,7 +152,7 @@ export default function AdminPage() {
       const response = await fetch(`${apiUrl}/api/generate-schedule?runs=3`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ slots: currentSlots, is_draft: isDraftMode })
+        
       });
 
       if (!response.ok) throw new Error(`API Error: ${response.status}`);

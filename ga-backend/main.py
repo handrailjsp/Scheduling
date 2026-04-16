@@ -14,6 +14,8 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:3000",
         "https://scheduling-s69x.vercel.app", 
+        "https://scheduling-s69x-git-main-joachimmsp-gmailcoms-projects.vercel.app"
+        "https://scheduling-s69x-fbensdb00-joachimmsp-gmailcoms-projects.vercel.app"
     ],
     allow_credentials=True,
     allow_methods=["*"],
