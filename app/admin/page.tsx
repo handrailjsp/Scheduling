@@ -149,10 +149,9 @@ export default function AdminPage() {
     try {
       const currentSlots = isDraftMode ? draftSlots : timetableSlots;
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-const response = await fetch(`${apiUrl}/api/generate-schedule?runs=3`, {
+const response = await fetch(`${apiUrl}/api/generate-schedule?runs=1`, {
   method: "POST",
-        
-      });
+});
 
       if (!response.ok) throw new Error(`API Error: ${response.status}`);
       
