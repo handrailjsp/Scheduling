@@ -14,7 +14,7 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:3000",
         "https://scheduling-s69x.vercel.app", 
-        "https://scheduling-s69x-git-main-joachimmsp-gmailcoms-projects.vercel.app"
+        "https://scheduling-s69x-git-main-joachimmsp-gmailcoms-projects.vercel.app",
         "https://scheduling-s69x-fbensdb00-joachimmsp-gmailcoms-projects.vercel.app"
     ],
     allow_credentials=True,
@@ -30,10 +30,7 @@ def root():
 
 @app.get("/api/health")
 async def health():
-    """
-    Open http://localhost:8000/api/health in your browser to
-    confirm the backend can read your database correctly.
-    """
+ 
     professors = database.get_all_professors()
     rooms      = database.get_all_rooms()
     slots      = database.get_all_timetable_slots()
