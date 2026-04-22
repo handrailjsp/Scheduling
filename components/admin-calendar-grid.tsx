@@ -9,7 +9,7 @@ import TimetableSlotModal from "@/components/timetable-slot-modal"
 import { cn } from "@/lib/utils"
 
 export const SCHEDULE_START_HOUR = 8
-export const SCHEDULE_END_HOUR = 19
+export const SCHEDULE_END_HOUR   = 19
 
 export function clampStartHour(start: number, duration = 1): number {
   return Math.max(SCHEDULE_START_HOUR, Math.min(start, SCHEDULE_END_HOUR - duration))
@@ -20,8 +20,8 @@ interface AdminCalendarGridProps {
   timetableSlots: TimetableSlot[]
   allSlots?: TimetableSlot[]
   onAddSlot: (slot: Omit<TimetableSlot, "id">) => void
-  onUpdateSlot?: (id: number, updates: Omit<TimetableSlot, "id">) => void
-  onDeleteSlot: (id: number) => void
+  onUpdateSlot?: (id: string, updates: Omit<TimetableSlot, "id">) => void
+  onDeleteSlot: (id: string) => void
   currentDate: Date
   onDateChange: (date: Date) => void
 }
@@ -46,22 +46,33 @@ export default function AdminCalendarGrid({
   const fmt = (h: number) => `${h % 12 || 12}${h >= 12 ? "pm" : "am"}`
 
   const [modalOpen, setModalOpen] = useState<{
-    date: Date; hour: number; slotId?: number
+    date: Date
+    hour: number
+    slotId?: string
   } | null>(null)
 
   const [previewSlot, setPreviewSlot] = useState<{
-    dayOfWeek: number; startHour: number; endHour: number
+    dayOfWeek: number
+    startHour: number
+    endHour: number
   } | null>(null)
 
   const slotAt = (day: number, hr: number) =>
     timetableSlots.find(s => s.dayOfWeek === day && s.hour === hr)
 
   const slotSpanning = (day: number, hr: number) =>
-    timetableSlots.find(s => s.dayOfWeek === day && hr >= s.hour && hr < s.endHour)
+    timetableSlots.find(
+      s => s.dayOfWeek === day && hr >= s.hour && hr < s.endHour,
+    )
 
-  const conflicts = (day: number, hr: number, room: string) =>
-    (allSlots.length > 0 ? allSlots : timetableSlots)
-      .filter(s => s.dayOfWeek === day && s.room === room && hr >= s.hour && hr < s.endHour)
+  const getConflicts = (day: number, hr: number, room: string) =>
+    (allSlots.length > 0 ? allSlots : timetableSlots).filter(
+      s =>
+        s.dayOfWeek === day &&
+        s.room === room &&
+        hr >= s.hour &&
+        hr < s.endHour,
+    )
 
   const inPreview = (day: number, hr: number) =>
     !!previewSlot &&
@@ -70,7 +81,7 @@ export default function AdminCalendarGrid({
     hr < previewSlot.endHour
 
   function enforceBounds(slot: Omit<TimetableSlot, "id">): Omit<TimetableSlot, "id"> {
-    const dur = (slot.endHour ?? slot.hour + 1) - slot.hour
+    const dur   = (slot.endHour ?? slot.hour + 1) - slot.hour
     const start = clampStartHour(slot.hour, dur)
     return { ...slot, hour: start, endHour: Math.min(start + dur, SCHEDULE_END_HOUR) }
   }
@@ -88,41 +99,74 @@ export default function AdminCalendarGrid({
 
   const handleSave = (slot: Omit<TimetableSlot, "id">) => {
     onAddSlot(enforceBounds(slot))
-    setModalOpen(null); setPreviewSlot(null)
+    setModalOpen(null)
+    setPreviewSlot(null)
   }
 
-  const handleUpdate = (id: number, slot: Omit<TimetableSlot, "id">) => {
+  const handleUpdate = (id: string, slot: Omit<TimetableSlot, "id">) => {
     onUpdateSlot?.(id, enforceBounds(slot))
-    setModalOpen(null); setPreviewSlot(null)
+    setModalOpen(null)
+    setPreviewSlot(null)
   }
 
   const handlePreview = (day: number, start: number, end: number) => {
     const dur = end - start
-    const s = clampStartHour(start, dur)
-    setPreviewSlot({ dayOfWeek: day, startHour: s, endHour: Math.min(s + dur, SCHEDULE_END_HOUR) })
+    const s   = clampStartHour(start, dur)
+    setPreviewSlot({
+      dayOfWeek: day,
+      startHour: s,
+      endHour:   Math.min(s + dur, SCHEDULE_END_HOUR),
+    })
   }
 
   const today = new Date()
 
   return (
     <div className="flex flex-col h-full select-none">
-      <div className="border-b border-border px-8 py-4 bg-background flex items-center gap-4">
-        <Button
-          onClick={() => { const d = new Date(currentDate); d.setDate(d.getDate() - 7); onDateChange(d) }}
-          variant="ghost" size="icon"
-        >
-          <ChevronLeft className="w-4 h-4" />
-        </Button>
-        <h3 className="text-sm font-semibold text-foreground min-w-40 text-center">
-          {weekDays[0].toLocaleDateString("en-US", { month: "short", day: "numeric" })} -{" "}
-          {weekDays[6].toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-        </h3>
-        <Button
-          onClick={() => { const d = new Date(currentDate); d.setDate(d.getDate() + 7); onDateChange(d) }}
-          variant="ghost" size="icon"
-        >
-          <ChevronRight className="w-4 h-4" />
-        </Button>
+      <div className="border-b border-border px-8 py-3 bg-background flex items-center justify-between">
+        <div className="flex items-center gap-4">
+          <Button
+            onClick={() => {
+              const d = new Date(currentDate)
+              d.setDate(d.getDate() - 7)
+              onDateChange(d)
+            }}
+            variant="ghost"
+            size="icon"
+          >
+            <ChevronLeft className="w-4 h-4" />
+          </Button>
+          <h3 className="text-sm font-semibold text-foreground min-w-40 text-center">
+            {weekDays[0].toLocaleDateString("en-US", { month: "short", day: "numeric" })} -{" "}
+            {weekDays[6].toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+          </h3>
+          <Button
+            onClick={() => {
+              const d = new Date(currentDate)
+              d.setDate(d.getDate() + 7)
+              onDateChange(d)
+            }}
+            variant="ghost"
+            size="icon"
+          >
+            <ChevronRight className="w-4 h-4" />
+          </Button>
+        </div>
+
+        <div className="flex items-center gap-4 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+          <div className="flex items-center gap-1.5">
+            <span className="w-3 h-3 rounded-sm bg-emerald-500 inline-block" />
+            Standard Room
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="w-3 h-3 rounded-sm bg-blue-500 inline-block" />
+            AC-Preferred
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="w-3 h-3 rounded-sm bg-red-500 inline-block" />
+            Room Conflict
+          </div>
+        </div>
       </div>
 
       <div className="flex flex-col h-full overflow-auto">
@@ -131,15 +175,21 @@ export default function AdminCalendarGrid({
           <div className="flex flex-1 divide-x divide-border">
             {weekDays.map(date => {
               const isToday =
-                date.getDate() === today.getDate() &&
-                date.getMonth() === today.getMonth() &&
+                date.getDate()     === today.getDate() &&
+                date.getMonth()    === today.getMonth() &&
                 date.getFullYear() === today.getFullYear()
               return (
-                <div key={date.toISOString()} className="flex-1 text-center py-4 bg-muted/5">
+                <div
+                  key={date.toISOString()}
+                  className="flex-1 text-center py-4 bg-muted/5"
+                >
                   <div className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest">
                     {date.toLocaleDateString("en-US", { weekday: "short" })}
                   </div>
-                  <div className={cn("text-xl font-bold mt-1", isToday ? "text-primary" : "text-foreground")}>
+                  <div className={cn(
+                    "text-xl font-bold mt-1",
+                    isToday ? "text-primary" : "text-foreground",
+                  )}>
                     {date.getDate()}
                   </div>
                 </div>
@@ -151,23 +201,33 @@ export default function AdminCalendarGrid({
         <div className="flex flex-1 min-h-fit">
           <div className="w-20 flex-shrink-0 border-r border-border bg-muted/5">
             {hours.map(hr => (
-              <div key={hr} className="h-24 border-b border-border flex items-start justify-center pt-3">
-                <span className="text-[10px] font-bold text-muted-foreground/60">{fmt(hr)}</span>
+              <div
+                key={hr}
+                className="h-24 border-b border-border flex items-start justify-center pt-3"
+              >
+                <span className="text-[10px] font-bold text-muted-foreground/60">
+                  {fmt(hr)}
+                </span>
               </div>
             ))}
           </div>
 
           <div className="flex flex-1 divide-x divide-border">
             {weekDays.map((date, dayOfWeek) => (
-              <div key={date.toISOString()} className="flex-1 divide-y divide-border/50 relative">
+              <div
+                key={date.toISOString()}
+                className="flex-1 divide-y divide-border/50 relative"
+              >
                 {hours.map(hr => {
-                  const slot = slotAt(dayOfWeek, hr)
+                  const slot     = slotAt(dayOfWeek, hr)
                   const spanning = slotSpanning(dayOfWeek, hr)
-                  const inSpan = spanning && !slot
-                  const preview = inPreview(dayOfWeek, hr)
+                  const inSpan   = spanning && !slot
+                  const preview  = inPreview(dayOfWeek, hr)
 
-                  const activeRoom = slot?.room || spanning?.room
-                  const cfls = activeRoom ? conflicts(dayOfWeek, hr, activeRoom) : []
+                  const activeRoom  = slot?.room || spanning?.room
+                  const cfls        = activeRoom
+                    ? getConflicts(dayOfWeek, hr, activeRoom)
+                    : []
                   const hasConflict = cfls.length > 1
 
                   return (
@@ -176,15 +236,18 @@ export default function AdminCalendarGrid({
                       className={cn(
                         "h-24 transition-all relative group cursor-pointer flex items-center justify-center border-b border-border/30",
                         preview && "bg-primary/10 border-2 border-primary/40 z-10",
-                        (slot || inSpan) && !hasConflict && (spanning?.needsAC
-                          ? "bg-blue-50/80 border-l-4 border-blue-500 hover:bg-blue-100"
-                          : "bg-emerald-50/80 border-l-4 border-emerald-500 hover:bg-emerald-100"),
-                        hasConflict && "bg-red-50 border-l-4 border-red-500 hover:bg-red-100",
+                        (slot || inSpan) &&
+                          !hasConflict &&
+                          (spanning?.needsAC
+                            ? "bg-blue-50/80 border-l-4 border-blue-500 hover:bg-blue-100"
+                            : "bg-emerald-50/80 border-l-4 border-emerald-500 hover:bg-emerald-100"),
+                        hasConflict &&
+                          "bg-red-50 border-l-4 border-red-500 hover:bg-red-100",
                       )}
                       onClick={() => {
-                        if (slot) openEdit(slot)
+                        if (slot)          openEdit(slot)
                         else if (spanning) openEdit(spanning)
-                        else if (!inSpan) openAdd(date, hr)
+                        else if (!inSpan)  openAdd(date, hr)
                       }}
                     >
                       {hasConflict && (
@@ -209,16 +272,19 @@ export default function AdminCalendarGrid({
                             </div>
                             <p className={cn(
                               "text-[10px] font-medium",
-                              hasConflict ? "text-red-600 font-bold" : "text-muted-foreground",
+                              hasConflict
+                                ? "text-red-600 font-bold"
+                                : "text-muted-foreground",
                             )}>
-                              Room {slot.room}{hasConflict && " - DOUBLE BOOKED"}
+                              Room {slot.room}
+                              {hasConflict && " — DOUBLE BOOKED"}
                             </p>
                           </div>
                           <div className="flex justify-end">
                             <button
                               onClick={e => {
                                 e.stopPropagation()
-                                if (confirm("Delete this slot?")) onDeleteSlot(slot.id)
+                                onDeleteSlot(slot.id)
                               }}
                               className="opacity-0 group-hover:opacity-100 transition p-1 hover:bg-destructive/10 rounded"
                             >
@@ -245,13 +311,20 @@ export default function AdminCalendarGrid({
             selectedDate={modalOpen.date}
             hour={modalOpen.hour}
             slotId={modalOpen.slotId}
-            existingSlot={modalOpen.slotId ? timetableSlots.find(s => s.id === modalOpen.slotId) : undefined}
+            existingSlot={
+              modalOpen.slotId
+                ? timetableSlots.find(s => s.id === modalOpen.slotId)
+                : undefined
+            }
             onSubmit={
               modalOpen.slotId
                 ? slot => handleUpdate(modalOpen.slotId!, slot)
                 : handleSave
             }
-            onClose={() => { setModalOpen(null); setPreviewSlot(null) }}
+            onClose={() => {
+              setModalOpen(null)
+              setPreviewSlot(null)
+            }}
             onPreviewUpdate={handlePreview}
             minHour={SCHEDULE_START_HOUR}
             maxHour={SCHEDULE_END_HOUR}

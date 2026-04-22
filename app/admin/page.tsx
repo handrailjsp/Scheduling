@@ -3,9 +3,9 @@
 import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
-import { 
-  LogOut, Sparkles, Loader2, CheckCircle, 
-  AlertCircle, LayoutDashboard, FileEdit, Save 
+import {
+  LogOut, Sparkles, Loader2, CheckCircle,
+  AlertCircle, DoorOpen, ChevronDown, ChevronUp, X
 } from "lucide-react"
 import ProfessorSidebar from "@/components/professor-sidebar"
 import AdminCalendarGrid from "@/components/admin-calendar-grid"
@@ -14,15 +14,15 @@ import { supabase } from "@/lib/supabase"
 import { cn } from "@/lib/utils"
 
 export interface Professor {
-  id: number
+  id: string
   name: string
   title: string
   department: string
 }
 
 export interface TimetableSlot {
-  id: number
-  professorId: number
+  id: string
+  professorId: string
   dayOfWeek: number
   hour: number
   endHour: number
@@ -43,6 +43,29 @@ export interface ScheduleResult {
   notes: string
 }
 
+interface RoomStatus {
+  id: string
+  is_ac: boolean
+  room_type: string
+  total_hours_booked: number
+  slots: Array<{
+    day_of_week: number
+    hour: number
+    end_hour: number
+    subject: string
+  }>
+}
+
+interface ToastState {
+  message: string
+  type: "success" | "error" | "info"
+}
+
+interface ConfirmState {
+  message: string
+  onConfirm: () => void
+}
+
 export default function AdminPage() {
   const router = useRouter()
   const [professors, setProfessors] = useState<Professor[]>([])
@@ -51,15 +74,14 @@ export default function AdminPage() {
   const [showModal, setShowModal] = useState(false)
   const [currentDate, setCurrentDate] = useState<Date>(new Date())
   const [loading, setLoading] = useState(true)
-  
-  // DRAFT MODE STATES
-  const [isDraftMode, setIsDraftMode] = useState(false)
-  const [draftSlots, setDraftSlots] = useState<TimetableSlot[]>([])
-  
-  // AI STATES
   const [generatingSchedule, setGeneratingSchedule] = useState(false)
   const [scheduleResult, setScheduleResult] = useState<ScheduleResult | null>(null)
   const [scheduleError, setScheduleError] = useState<string | null>(null)
+  const [toast, setToast] = useState<ToastState | null>(null)
+  const [confirmDialog, setConfirmDialog] = useState<ConfirmState | null>(null)
+  const [roomsData, setRoomsData] = useState<RoomStatus[]>([])
+  const [showRooms, setShowRooms] = useState(false)
+  const [loadingRooms, setLoadingRooms] = useState(false)
 
   useEffect(() => {
     const init = async () => {
@@ -70,191 +92,249 @@ export default function AdminPage() {
     init()
   }, [])
 
-  // --- PROFESSOR MANAGEMENT FUNCTIONS ---
+  useEffect(() => {
+    if (toast) {
+      const timer = setTimeout(() => setToast(null), 4000)
+      return () => clearTimeout(timer)
+    }
+  }, [toast])
+
+  const showToast = (message: string, type: ToastState["type"]) => {
+    setToast({ message, type })
+  }
+
+  const showConfirm = (message: string, onConfirm: () => void) => {
+    setConfirmDialog({ message, onConfirm })
+  }
+
+  const fetchRooms = async () => {
+    setLoadingRooms(true)
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
+      const res = await fetch(`${apiUrl}/api/rooms`)
+      const data = await res.json()
+      if (data.success) {
+        setRoomsData(data.rooms)
+      }
+    } catch {
+      showToast("Could not load room data", "error")
+    } finally {
+      setLoadingRooms(false)
+    }
+  }
+
+  const handleToggleRooms = () => {
+    if (!showRooms && roomsData.length === 0) {
+      fetchRooms()
+    }
+    setShowRooms(prev => !prev)
+  }
 
   const fetchProfessors = async () => {
     try {
-      const { data, error } = await supabase.from('professors').select('*').order('name')
+      const { data, error } = await supabase.from("professors").select("*").order("name")
       if (error) throw error
-      const formatted = data?.map((p: any) => ({
-        id: p.id, name: p.name, title: p.title, department: p.department,
-      })) || []
+      const formatted: Professor[] = (data ?? []).map((p: any) => ({
+        id:         String(p.id),
+        name:       p.name,
+        title:      p.title,
+        department: p.department,
+      }))
       setProfessors(formatted)
-      if (formatted.length > 0 && !selectedProfessor) setSelectedProfessor(formatted[0])
-    } catch (err) { console.error('Fetch Profs Error:', err) }
+      if (formatted.length > 0 && !selectedProfessor) {
+        setSelectedProfessor(formatted[0])
+      }
+    } catch (err: any) {
+      showToast("Failed to load professors: " + err.message, "error")
+    }
   }
 
   const handleAddProfessor = async (prof: Omit<Professor, "id">) => {
-    const { error } = await supabase.from('professors').insert([prof]);
+    const { error } = await supabase.from("professors").insert([prof])
     if (error) {
-      alert(error.message);
+      showToast(error.message, "error")
     } else {
-      await fetchProfessors();
-      setShowModal(false);
+      await fetchProfessors()
+      setShowModal(false)
+      showToast("Professor added successfully", "success")
     }
-  };
+  }
 
-  const handleDeleteProfessor = async (id: number) => {
-    if (!confirm("Delete professor and all their slots?")) return;
-    setLoading(true);
-    try {
-      await supabase.from('timetable_slots').delete().eq('professor_id', id);
-      await supabase.from('professors').delete().eq('id', id);
-      await fetchProfessors();
-      await fetchAllTimetableSlots();
-    } catch (err: any) {
-      alert(err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // --- SLOT MANAGEMENT FUNCTIONS ---
+  const handleDeleteProfessor = async (id: string) => {
+    showConfirm("Delete this professor and all their slots?", async () => {
+      setLoading(true)
+      try {
+        await supabase.from("timetable_slots").delete().eq("professor_id", id)
+        await supabase.from("professors").delete().eq("id", id)
+        if (selectedProfessor?.id === id) setSelectedProfessor(null)
+        await fetchProfessors()
+        await fetchAllTimetableSlots()
+        showToast("Professor deleted", "success")
+      } catch (err: any) {
+        showToast(err.message, "error")
+      } finally {
+        setLoading(false)
+      }
+    })
+  }
 
   const fetchAllTimetableSlots = async () => {
     try {
-      const { data, error } = await supabase.from('timetable_slots').select('*')
+      const { data, error } = await supabase.from("timetable_slots").select("*")
       if (error) throw error
-      const formatted = data?.map((slot: any) => ({
-        id: slot.id,
-        professorId: slot.professor_id,
-        dayOfWeek: slot.day_of_week,
-        hour: slot.hour,
-        endHour: slot.end_hour,
-        subject: slot.subject,
-        room: slot.room,
-        needsAC: slot.needs_ac,
-      })) || []
+      const formatted: TimetableSlot[] = (data ?? []).map((slot: any) => ({
+        id:          String(slot.id),
+        professorId: String(slot.professor_id),
+        dayOfWeek:   slot.day_of_week,
+        hour:        slot.hour,
+        endHour:     slot.end_hour,
+        subject:     slot.subject,
+        room:        slot.room,
+        needsAC:     slot.needs_ac,
+      }))
       setTimetableSlots(formatted)
-    } catch (err) { console.error('Fetch Slots Error:', err) }
-  }
-
-  const toggleDraftMode = () => {
-    if (!isDraftMode) {
-      setDraftSlots([...timetableSlots])
-      setIsDraftMode(true)
-    } else {
-      if (confirm("Discard draft changes and return to live view?")) {
-        setIsDraftMode(false)
-        setDraftSlots([])
-      }
+    } catch (err: any) {
+      showToast("Failed to load slots: " + err.message, "error")
     }
   }
 
   const handleGenerateSchedule = async () => {
-    setGeneratingSchedule(true);
-    setScheduleError(null);
-    setScheduleResult(null);
-    
-    try {
-      const currentSlots = isDraftMode ? draftSlots : timetableSlots;
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-const response = await fetch(`${apiUrl}/api/generate-schedule?runs=1`, {
-  method: "POST",
-});
+    setGeneratingSchedule(true)
+    setScheduleError(null)
+    setScheduleResult(null)
 
-      if (!response.ok) throw new Error(`API Error: ${response.status}`);
-      
-      const data = await response.json();
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
+      const response = await fetch(`${apiUrl}/api/generate-schedule?runs=1`, {
+        method: "POST",
+      })
+
+      if (!response.ok) throw new Error(`API Error: ${response.status}`)
+
+      const data = await response.json()
       if (data.success) {
         setScheduleResult({
-          id: data.schedule_id,
-          fitness_score: data.fitness_score,
+          id:                         data.schedule_id,
+          fitness_score:              data.fitness_score,
           hard_constraint_violations: data.hard_violations,
-          soft_constraint_score: data.soft_score,
-          gini_workload: data.gini_workload,
-          gini_room_usage: data.gini_room_usage,
-          gini_ac_access: data.gini_ac_access,
-          status: data.auto_approved ? "approved" : "pending",
-          notes: data.message || "Optimized"
-        });
-
-        if (data.auto_approved) {
-          setIsDraftMode(false);
-          await fetchAllTimetableSlots();
-        }
+          soft_constraint_score:      data.soft_score,
+          gini_workload:              data.gini_workload,
+          gini_room_usage:            data.gini_room_usage,
+          gini_ac_access:             data.gini_ac_access,
+          status:                     data.auto_approved ? "approved" : "pending",
+          notes:                      data.message || "Optimized",
+        })
+        await fetchAllTimetableSlots()
+        if (showRooms) await fetchRooms()
+        showToast("Schedule generated successfully", "success")
       } else {
-        setScheduleError(data.message);
+        setScheduleError(data.detail || data.message || "Unknown error")
       }
     } catch (err: any) {
-      setScheduleError(err.message);
+      setScheduleError(err.message)
     } finally {
-      setGeneratingSchedule(false);
-    }
-  };
-
-  const handleAddTimetableSlot = async (slot: Omit<TimetableSlot, "id">) => {
-    if (isDraftMode) {
-      const newDraftSlot: TimetableSlot = {
-        ...slot,
-        id: Math.floor(Math.random() * 1000000)
-      };
-      setDraftSlots(prev => [...prev, newDraftSlot]);
-    } else {
-      const { error } = await supabase.from('timetable_slots').insert([{
-        professor_id: slot.professorId, day_of_week: slot.dayOfWeek,
-        hour: slot.hour, end_hour: slot.endHour,
-        subject: slot.subject, room: slot.room, needs_ac: slot.needsAC,
-      }]);
-      if (error) alert(error.message);
-      else await fetchAllTimetableSlots();
-    }
-  };
-
-  const handleUpdateTimetableSlot = async (id: number, updates: Omit<TimetableSlot, "id">) => {
-    if (isDraftMode) {
-      setDraftSlots(prev => prev.map(s => s.id === id ? { ...updates, id } : s));
-    } else {
-      const { error } = await supabase.from('timetable_slots').update({
-        professor_id: updates.professorId, day_of_week: updates.dayOfWeek,
-        hour: updates.hour, end_hour: updates.endHour,
-        subject: updates.subject, room: updates.room, needs_ac: updates.needsAC,
-      }).eq('id', id);
-      if (error) alert(error.message);
-      else await fetchAllTimetableSlots();
-    }
-  };
-
-  const handleDeleteTimetableSlot = async (id: number) => {
-    if (isDraftMode) {
-      setDraftSlots(prev => prev.filter(s => s.id !== id));
-    } else {
-      await supabase.from('timetable_slots').delete().eq('id', id);
-      await fetchAllTimetableSlots();
-    }
-  };
-
-  const commitDraftToLive = async () => {
-    if (!confirm("Overwrite live schedule with this optimized draft?")) return;
-    setLoading(true);
-    try {
-      await supabase.from('timetable_slots').delete().neq('id', -1);
-      const payload = draftSlots.map(s => ({
-        professor_id: s.professorId,
-        day_of_week: s.dayOfWeek,
-        hour: s.hour,
-        end_hour: s.endHour,
-        subject: s.subject,
-        room: s.room,
-        needs_ac: s.needsAC,
-      }));
-      const { error: insertError } = await supabase.from('timetable_slots').insert(payload);
-      if (insertError) throw insertError;
-
-      setIsDraftMode(false);
-      await fetchAllTimetableSlots();
-      alert("Schedule committed successfully!");
-    } catch (err: any) {
-      alert("Sync Error: " + err.message);
-    } finally {
-      setLoading(false);
+      setGeneratingSchedule(false)
     }
   }
 
-  if (loading) return <div className="flex h-screen items-center justify-center"><Loader2 className="animate-spin" /></div>
+  const handleAddTimetableSlot = async (slot: Omit<TimetableSlot, "id">) => {
+    const { error } = await supabase.from("timetable_slots").insert([{
+      professor_id: slot.professorId,
+      day_of_week:  slot.dayOfWeek,
+      hour:         slot.hour,
+      end_hour:     slot.endHour,
+      subject:      slot.subject,
+      room:         slot.room,
+      needs_ac:     slot.needsAC,
+    }])
+    if (error) {
+      showToast(error.message, "error")
+    } else {
+      await fetchAllTimetableSlots()
+    }
+  }
+
+  const handleUpdateTimetableSlot = async (id: string, updates: Omit<TimetableSlot, "id">) => {
+    const { error } = await supabase.from("timetable_slots").update({
+      professor_id: updates.professorId,
+      day_of_week:  updates.dayOfWeek,
+      hour:         updates.hour,
+      end_hour:     updates.endHour,
+      subject:      updates.subject,
+      room:         updates.room,
+      needs_ac:     updates.needsAC,
+    }).eq("id", id)
+    if (error) {
+      showToast(error.message, "error")
+    } else {
+      await fetchAllTimetableSlots()
+    }
+  }
+
+  const handleDeleteTimetableSlot = async (id: string) => {
+    showConfirm("Delete this slot?", async () => {
+      await supabase.from("timetable_slots").delete().eq("id", id)
+      await fetchAllTimetableSlots()
+      showToast("Slot deleted", "success")
+    })
+  }
+
+  const maxHoursInWeek = 40
+
+  if (loading) {
+    return (
+      <div className="flex h-screen items-center justify-center">
+        <Loader2 className="animate-spin" />
+      </div>
+    )
+  }
 
   return (
     <div className="flex h-screen bg-background text-foreground">
+
+      {toast && (
+        <div className={cn(
+          "fixed top-4 left-1/2 -translate-x-1/2 z-[100] px-5 py-3 rounded-lg shadow-xl text-white text-sm font-medium flex items-center gap-3 min-w-72",
+          toast.type === "success" && "bg-green-600",
+          toast.type === "error"   && "bg-red-600",
+          toast.type === "info"    && "bg-blue-600",
+        )}>
+          {toast.type === "success" && <CheckCircle className="w-4 h-4 shrink-0" />}
+          {toast.type === "error"   && <AlertCircle className="w-4 h-4 shrink-0" />}
+          <span className="flex-1">{toast.message}</span>
+          <button onClick={() => setToast(null)} className="hover:opacity-70">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {confirmDialog && (
+        <div className="fixed inset-0 bg-black/50 z-[90] flex items-center justify-center">
+          <div className="bg-card border border-border rounded-xl p-6 w-full max-w-sm shadow-2xl">
+            <p className="text-sm font-medium text-foreground mb-5">{confirmDialog.message}</p>
+            <div className="flex gap-3">
+              <Button
+                variant="outline"
+                className="flex-1"
+                onClick={() => setConfirmDialog(null)}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                className="flex-1"
+                onClick={() => {
+                  confirmDialog.onConfirm()
+                  setConfirmDialog(null)
+                }}
+              >
+                Confirm
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <ProfessorSidebar
         professors={professors}
         selectedProfessor={selectedProfessor}
@@ -262,50 +342,28 @@ const response = await fetch(`${apiUrl}/api/generate-schedule?runs=1`, {
         onAddProfessor={() => setShowModal(true)}
         onDeleteProfessor={handleDeleteProfessor}
       />
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <div className={cn(
-          "border-b px-8 py-4 flex items-center justify-between transition-colors",
-          isDraftMode ? "bg-amber-500/10 border-amber-500/30" : "border-border"
-        )}>
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-xl font-bold">Admin Dashboard</h1>
-              {isDraftMode && (
-                <span className="bg-amber-500 text-white text-[10px] px-2 py-0.5 rounded-full font-bold animate-pulse">
-                  DRAFT MODE
-                </span>
-              )}
-            </div>
-            {selectedProfessor && <p className="text-sm text-muted-foreground">{selectedProfessor.name}</p>}
-          </div>
-          
-          <div className="flex items-center gap-3">
-            <Button 
-              variant={isDraftMode ? "destructive" : "outline"} 
-              size="sm" 
-              onClick={toggleDraftMode}
-              className="h-9"
-            >
-              {isDraftMode ? <FileEdit className="mr-2 h-4 w-4" /> : <LayoutDashboard className="mr-2 h-4 w-4" />}
-              {isDraftMode ? "Exit Draft" : "Enter Draft Mode"}
-            </Button>
-            
-            {isDraftMode && (
-              <Button size="sm" onClick={commitDraftToLive} className="bg-green-600 hover:bg-green-700 h-9">
-                <Save className="mr-2 h-4 w-4" /> Commit Live
-              </Button>
-            )}
 
-            <Button onClick={() => router.push("/")} variant="ghost" size="icon"><LogOut className="w-4 h-4" /></Button>
+      <div className="flex-1 flex flex-col overflow-hidden">
+        <div className="border-b border-border px-8 py-4 flex items-center justify-between">
+          <div>
+            <h1 className="text-xl font-bold">Admin Dashboard</h1>
+            {selectedProfessor && (
+              <p className="text-sm text-muted-foreground">{selectedProfessor.name}</p>
+            )}
           </div>
+          <Button onClick={() => router.push("/")} variant="ghost" size="icon">
+            <LogOut className="w-4 h-4" />
+          </Button>
         </div>
 
         <div className="flex-1 overflow-auto">
-          {selectedProfessor && currentDate ? (
+          {selectedProfessor ? (
             <AdminCalendarGrid
               professor={selectedProfessor}
-              timetableSlots={(isDraftMode ? draftSlots : timetableSlots).filter(s => s.professorId === selectedProfessor.id)}
-              allSlots={isDraftMode ? draftSlots : timetableSlots}
+              timetableSlots={timetableSlots.filter(
+                s => s.professorId === selectedProfessor.id,
+              )}
+              allSlots={timetableSlots}
               onAddSlot={handleAddTimetableSlot}
               onUpdateSlot={handleUpdateTimetableSlot}
               onDeleteSlot={handleDeleteTimetableSlot}
@@ -313,23 +371,107 @@ const response = await fetch(`${apiUrl}/api/generate-schedule?runs=1`, {
               onDateChange={setCurrentDate}
             />
           ) : (
-            <div className="h-full flex items-center justify-center">Select a professor to manage schedule</div>
+            <div className="h-full flex items-center justify-center text-muted-foreground">
+              Select a professor to manage schedule
+            </div>
           )}
         </div>
-        
-        {/* AI Action Panel */}
-        <div className="fixed bottom-6 right-6 w-96 bg-card border border-border p-5 rounded-xl shadow-2xl z-50">
+      </div>
+
+      <div className="fixed bottom-6 right-6 w-96 z-50 flex flex-col gap-3">
+
+        <div className="bg-card border border-border rounded-xl shadow-2xl overflow-hidden">
+          <button
+            onClick={handleToggleRooms}
+            className="w-full flex items-center justify-between px-5 py-3 hover:bg-muted/40 transition-colors"
+          >
+            <div className="flex items-center gap-2">
+              <DoorOpen className="h-4 w-4 text-blue-500" />
+              <span className="font-semibold text-sm">Room Availability</span>
+            </div>
+            {showRooms ? (
+              <ChevronDown className="h-4 w-4 text-muted-foreground" />
+            ) : (
+              <ChevronUp className="h-4 w-4 text-muted-foreground" />
+            )}
+          </button>
+
+          {showRooms && (
+            <div className="px-5 pb-4 border-t border-border">
+              {loadingRooms ? (
+                <div className="flex justify-center py-4">
+                  <Loader2 className="animate-spin w-5 h-5 text-muted-foreground" />
+                </div>
+              ) : (
+                <div className="space-y-2 pt-3">
+                  <div className="flex justify-between text-[10px] font-bold uppercase text-muted-foreground mb-1">
+                    <span>Room</span>
+                    <span>Hours Booked</span>
+                  </div>
+                  {roomsData.map(room => {
+                    const pct = Math.min((room.total_hours_booked / maxHoursInWeek) * 100, 100)
+                    const isFree = room.total_hours_booked === 0
+                    return (
+                      <div key={room.id}>
+                        <div className="flex items-center justify-between mb-1">
+                          <div className="flex items-center gap-2">
+                            <span className={cn(
+                              "w-2 h-2 rounded-full",
+                              isFree ? "bg-green-500" : "bg-orange-500",
+                            )} />
+                            <span className="text-xs font-semibold">{room.id}</span>
+                            <span className="text-[9px] text-muted-foreground uppercase">
+                              {room.room_type}
+                              {room.is_ac && " · AC"}
+                            </span>
+                          </div>
+                          <span className={cn(
+                            "text-[10px] font-bold",
+                            isFree ? "text-green-600" : "text-orange-600",
+                          )}>
+                            {room.total_hours_booked}h
+                          </span>
+                        </div>
+                        <div className="w-full bg-muted h-1 rounded-full overflow-hidden">
+                          <div
+                            className={cn(
+                              "h-full rounded-full transition-all",
+                              isFree ? "bg-green-400" : pct > 60 ? "bg-red-500" : "bg-orange-400",
+                            )}
+                            style={{ width: `${pct}%` }}
+                          />
+                        </div>
+                      </div>
+                    )
+                  })}
+                  <button
+                    onClick={fetchRooms}
+                    className="text-[10px] text-primary hover:underline pt-1 block"
+                  >
+                    Refresh
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="bg-card border border-border p-5 rounded-xl shadow-2xl">
           <div className="flex items-center gap-2 mb-4">
             <Sparkles className="h-5 w-5 text-purple-500" />
             <h3 className="font-semibold">AI Timetable Engine</h3>
           </div>
-          
-          <Button 
-            onClick={handleGenerateSchedule} 
+
+          <Button
+            onClick={handleGenerateSchedule}
             disabled={generatingSchedule}
             className="w-full bg-purple-600 hover:bg-purple-700 text-white mb-4 shadow-lg shadow-purple-500/20"
           >
-            {generatingSchedule ? <Loader2 className="animate-spin mr-2 h-4 w-4" /> : <Sparkles className="mr-2 h-4 w-4" />}
+            {generatingSchedule ? (
+              <Loader2 className="animate-spin mr-2 h-4 w-4" />
+            ) : (
+              <Sparkles className="mr-2 h-4 w-4" />
+            )}
             {generatingSchedule ? "Optimizing..." : "Generate Schedule"}
           </Button>
 
@@ -348,40 +490,52 @@ const response = await fetch(`${apiUrl}/api/generate-schedule?runs=1`, {
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="bg-background p-2 rounded border border-border">
-                  <p className="text-muted-foreground scale-90 origin-left">Conflicts</p>
-                  <p className={cn("font-bold text-lg", scheduleResult.hard_constraint_violations > 0 ? "text-red-500" : "text-green-500")}>
+                  <p className="text-muted-foreground text-[10px]">Conflicts</p>
+                  <p className={cn(
+                    "font-bold text-lg",
+                    scheduleResult.hard_constraint_violations > 0
+                      ? "text-red-500"
+                      : "text-green-500",
+                  )}>
                     {scheduleResult.hard_constraint_violations}
                   </p>
                 </div>
                 <div className="bg-background p-2 rounded border border-border">
-                  <p className="text-muted-foreground scale-90 origin-left">Gini (AC Fairness)</p>
-                  <p className="font-bold text-lg">{scheduleResult.gini_ac_access?.toFixed(3) || "0.000"}</p>
+                  <p className="text-muted-foreground text-[10px]">Gini AC Fairness</p>
+                  <p className="font-bold text-lg">
+                    {scheduleResult.gini_ac_access?.toFixed(3) || "0.000"}
+                  </p>
                 </div>
               </div>
-              
-              <div className="pt-2 border-t border-purple-500/10">
-                <div className="flex justify-between items-center mb-1">
-                  <span className="text-muted-foreground">Overall Quality Score:</span>
-                  <span className="font-bold text-purple-600">{scheduleResult.soft_constraint_score}%</span>
+
+              <div className="grid grid-cols-2 gap-2 text-[10px]">
+                <div className="bg-background p-2 rounded border border-border">
+                  <p className="text-muted-foreground">Workload Gini</p>
+                  <p className="font-bold">{scheduleResult.gini_workload?.toFixed(3) || "0.000"}</p>
                 </div>
-                <div className="w-full bg-muted h-1.5 rounded-full overflow-hidden">
-                  <div 
-                    className="bg-purple-500 h-full transition-all duration-1000" 
-                    style={{ width: `${scheduleResult.soft_constraint_score}%` }}
-                  />
+                <div className="bg-background p-2 rounded border border-border">
+                  <p className="text-muted-foreground">Room Gini</p>
+                  <p className="font-bold">{scheduleResult.gini_room_usage?.toFixed(3) || "0.000"}</p>
                 </div>
               </div>
 
               {scheduleResult.status === "approved" && (
-                <div className="flex items-center gap-2 text-green-600 font-bold pt-2 border-t border-green-500/20 animate-in fade-in slide-in-from-bottom-2">
-                  <CheckCircle className="h-4 w-4" /> Optimal Schedule Found
+                <div className="flex items-center gap-2 text-green-600 font-bold pt-2 border-t border-green-500/20">
+                  <CheckCircle className="h-4 w-4" />
+                  Optimal Schedule Found
                 </div>
               )}
             </div>
           )}
         </div>
       </div>
-      {showModal && <ProfessorFormModal onSubmit={handleAddProfessor} onClose={() => setShowModal(false)} />}
+
+      {showModal && (
+        <ProfessorFormModal
+          onSubmit={handleAddProfessor}
+          onClose={() => setShowModal(false)}
+        />
+      )}
     </div>
   )
 }

@@ -11,7 +11,7 @@ interface TimetableSlotModalProps {
   professor: Professor
   selectedDate: Date
   hour: number
-  slotId?: number
+  slotId?: string
   existingSlot?: TimetableSlot
   onSubmit: (data: Omit<TimetableSlot, "id">) => void
   onClose: () => void
@@ -43,52 +43,52 @@ export default function TimetableSlotModal({
     return d
   })
 
-  const [startTime, setStartTime] = useState(() => {
-    return existingSlot 
-      ? `${String(existingSlot.hour).padStart(2, "0")}:00` 
-      : `${String(hour).padStart(2, "0")}:00`
-  })
+  const [startTime, setStartTime] = useState(() =>
+    existingSlot
+      ? `${String(existingSlot.hour).padStart(2, "0")}:00`
+      : `${String(hour).padStart(2, "0")}:00`,
+  )
 
-  const [endTime, setEndTime] = useState(() => {
-    return existingSlot 
-      ? `${String(existingSlot.endHour).padStart(2, "0")}:00` 
-      : `${String(hour + 1).padStart(2, "0")}:00`
-  })
+  const [endTime, setEndTime] = useState(() =>
+    existingSlot
+      ? `${String(existingSlot.endHour).padStart(2, "0")}:00`
+      : `${String(hour + 1).padStart(2, "0")}:00`,
+  )
 
-  const handlePreviewUpdate = (date: Date, newStartTime: string, newEndTime: string) => {
-    const startHour = Number.parseInt(newStartTime.split(":")[0])
-    const endHour = Number.parseInt(newEndTime.split(":")[0])
-    const calculatedDayOfWeek = date.getDay()
-    onPreviewUpdate?.(calculatedDayOfWeek, startHour, endHour)
+  const handlePreviewUpdate = (
+    date: Date,
+    newStartTime: string,
+    newEndTime: string,
+  ) => {
+    const startHour = parseInt(newStartTime.split(":")[0])
+    const endHour   = parseInt(newEndTime.split(":")[0])
+    onPreviewUpdate?.(date.getDay(), startHour, endHour)
   }
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    // Removed room check since the button is gone
-    if (formData.subject) {
-      const selectedDayOfWeek = slotDate.getDay()
-      const startH = Number.parseInt(startTime.split(":")[0])
-      const endH = Number.parseInt(endTime.split(":")[0])
 
-      if (endH <= startH) {
-        alert("End time must be after start time")
-        return
-      }
-
-      onSubmit({
-        professorId: professor.id,
-        dayOfWeek: selectedDayOfWeek,
-        hour: startH,
-        endHour: endH,
-        subject: formData.subject,
-        // Passing a default or existing value so the backend/types don't break
-        room: existingSlot?.room || "TBD", 
-        needsAC: formData.needsAC,
-      })
-      onClose()
-    } else {
-      alert("Subject is required")
+    if (!formData.subject) {
+      return
     }
+
+    const startH = parseInt(startTime.split(":")[0])
+    const endH   = parseInt(endTime.split(":")[0])
+
+    if (endH <= startH) {
+      return
+    }
+
+    onSubmit({
+      professorId: professor.id,
+      dayOfWeek:   slotDate.getDay(),
+      hour:        startH,
+      endHour:     endH,
+      subject:     formData.subject,
+      room:        existingSlot?.room || "TBD",
+      needsAC:     formData.needsAC,
+    })
+    onClose()
   }
 
   return (
@@ -98,7 +98,10 @@ export default function TimetableSlotModal({
           <h2 className="text-xl font-bold text-foreground">
             {slotId ? "Update Schedule" : "Add New Class"}
           </h2>
-          <button onClick={onClose} className="text-muted-foreground hover:text-foreground p-1 transition">
+          <button
+            onClick={onClose}
+            className="text-muted-foreground hover:text-foreground p-1 transition"
+          >
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -117,34 +120,43 @@ export default function TimetableSlotModal({
           />
 
           <div className="space-y-2">
-            <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Subject Name</label>
+            <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+              Subject Name
+            </label>
             <input
               type="text"
               required
               value={formData.subject}
-              onChange={(e) => setFormData({ ...formData, subject: e.target.value })}
+              onChange={e => setFormData({ ...formData, subject: e.target.value })}
               className="w-full px-4 py-3 border border-border rounded-lg bg-background text-sm focus:ring-2 focus:ring-primary/20"
               placeholder="e.g. Computer Graphics"
             />
           </div>
 
-          {/* Location section removed as requested */}
-
           <label className="flex items-center gap-3 p-4 border border-border rounded-lg cursor-pointer hover:bg-muted/30 transition">
             <input
               type="checkbox"
               checked={formData.needsAC}
-              onChange={(e) => setFormData({ ...formData, needsAC: e.target.checked })}
+              onChange={e => setFormData({ ...formData, needsAC: e.target.checked })}
               className="w-4 h-4 accent-primary"
             />
             <div className="flex items-center gap-2">
-              <Snowflake className={`w-4 h-4 ${formData.needsAC ? "text-blue-500" : "text-muted-foreground"}`} />
+              <Snowflake
+                className={`w-4 h-4 ${formData.needsAC ? "text-blue-500" : "text-muted-foreground"}`}
+              />
               <span className="text-sm font-semibold">Requires Air Conditioning</span>
             </div>
           </label>
 
           <div className="flex gap-3 pt-4">
-            <Button onClick={onClose} type="button" variant="ghost" className="flex-1">Discard</Button>
+            <Button
+              onClick={onClose}
+              type="button"
+              variant="ghost"
+              className="flex-1"
+            >
+              Discard
+            </Button>
             <Button type="submit" className="flex-1 shadow-lg shadow-primary/20">
               {slotId ? "Apply Changes" : "Confirm Slot"}
             </Button>

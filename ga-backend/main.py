@@ -1,7 +1,3 @@
-"""
-main.py  —  EQ-Schedule FastAPI server
-"""
-
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import database
@@ -12,8 +8,8 @@ app = FastAPI(title="EQ-Schedule API", version="3.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=False, 
-    allow_methods=["GET", "POST", "OPTIONS"], 
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
 )
 
@@ -25,7 +21,6 @@ def root():
 
 @app.get("/api/health")
 async def health():
- 
     professors = database.get_all_professors()
     rooms      = database.get_all_rooms()
     slots      = database.get_all_timetable_slots()
@@ -54,6 +49,38 @@ async def get_timetable():
     return database.get_timetable_slots()
 
 
+@app.get("/api/rooms")
+async def get_rooms():
+    rooms = database.get_all_rooms()
+    slots = database.get_all_timetable_slots()
+
+    result = []
+    for room in rooms:
+        rid = room["id"]
+        room_slots = [
+            {
+                "day_of_week": s["day_of_week"],
+                "hour":        s["hour"],
+                "end_hour":    s["end_hour"],
+                "subject":     s.get("subject", ""),
+                "professor_id": s.get("professor_id", ""),
+            }
+            for s in slots if s.get("room") == rid
+        ]
+        total_hours = sum(
+            int(s["end_hour"]) - int(s["hour"]) for s in room_slots
+        )
+        result.append({
+            "id":                 rid,
+            "is_ac":              room.get("is_ac", False),
+            "room_type":          room.get("room_type", "Lecture"),
+            "total_hours_booked": total_hours,
+            "slots":              room_slots,
+        })
+
+    return {"success": True, "rooms": result}
+
+
 @app.get("/api/schedules")
 async def get_schedules():
     try:
@@ -71,10 +98,6 @@ async def get_schedules():
 
 @app.post("/api/generate-schedule")
 async def generate_schedule(runs: int = 1):
-    """
-    Triggers the GA. It reads your existing timetable_slots
-    and autonomously assigns day, hour, and room to each one.
-    """
     slots = database.get_all_timetable_slots()
     if not slots:
         raise HTTPException(
