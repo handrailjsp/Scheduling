@@ -59,10 +59,10 @@ async def get_rooms():
         rid = room["id"]
         room_slots = [
             {
-                "day_of_week": s["day_of_week"],
-                "hour":        s["hour"],
-                "end_hour":    s["end_hour"],
-                "subject":     s.get("subject", ""),
+                "day_of_week":  s["day_of_week"],
+                "hour":         s["hour"],
+                "end_hour":     s["end_hour"],
+                "subject":      s.get("subject", ""),
                 "professor_id": s.get("professor_id", ""),
             }
             for s in slots if s.get("room") == rid
@@ -119,16 +119,17 @@ async def generate_schedule(runs: int = 1):
         raise HTTPException(status_code=500, detail="GA failed — check terminal logs.")
 
     return {
-        "success":         True,
-        "schedule_id":     best_result["schedule_id"],
-        "fitness_score":   best_result["fitness_score"],
-        "hard_violations": best_result["hard_violations"],
-        "soft_score":      best_result["soft_score"],
-        "gini_workload":   best_result["gini_workload"],
-        "gini_room_usage": best_result["gini_room_usage"],
-        "gini_ac_access":  best_result["gini_ac_access"],
-        "auto_approved":   best_result["hard_violations"] == 0,
-        "runs_completed":  runs,
+        "success":            True,
+        "schedule_id":        best_result["schedule_id"],
+        "fitness_score":      best_result["fitness_score"],
+        "hard_violations":    best_result["hard_violations"],
+        "soft_score":         best_result["soft_score"],
+        "gini_workload":      best_result["gini_workload"],
+        "gini_room_usage":    best_result["gini_room_usage"],
+        "gini_ac_access":     best_result["gini_ac_access"],
+        "auto_approved":      best_result["hard_violations"] == 0,
+        "runs_completed":     runs,
+        "capacity_warnings":  best_result.get("capacity_warnings", []),
     }
 
 

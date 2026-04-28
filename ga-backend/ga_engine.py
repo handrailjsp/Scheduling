@@ -19,6 +19,8 @@ W_GINI_R =       300
 W_GINI_A =       400
 W_AC_BON =       100
 
+AC_PREFER_PROB = 0.85
+
 
 def gini(values: list) -> float:
     n = len(values)
@@ -45,11 +47,13 @@ def load_data() -> dict:
 
     rooms = []
     for r in rooms_raw:
-        is_lab = str(r.get("room_type", "")).lower() == "laboratory"
+        room_type = str(r.get("room_type", "")).lower()
+        is_lab    = room_type == "laboratory"
         rooms.append({
             "id":         str(r["id"]),
             "is_ac":      False if is_lab else bool(r.get("is_ac", False)),
             "is_faculty": bool(r.get("is_faculty", False)),
+            "room_type":  r.get("room_type", "Lecture"),
         })
 
     schedulable = [r for r in rooms if not r["is_faculty"]]
@@ -79,9 +83,20 @@ def load_data() -> dict:
     }
 
 
+def _pick_room(needs_ac: bool, data: dict) -> dict:
+    ac_rooms = data["ac_rooms"]
+    all_rooms = data["rooms"]
+
+    if needs_ac and ac_rooms:
+        if random.random() < AC_PREFER_PROB:
+            return random.choice(ac_rooms)
+        return random.choice(all_rooms)
+
+    return random.choice(all_rooms)
+
+
 def random_gene(cls: dict, data: dict) -> dict:
-    pool = data["ac_rooms"] if cls["needs_ac"] and data["ac_rooms"] else data["rooms"]
-    room = random.choice(pool)
+    room = _pick_room(cls["needs_ac"], data)
     return {
         "slot_id":      cls["slot_id"],
         "professor_id": cls["professor_id"],
@@ -180,15 +195,37 @@ def mutate(chrom: list, rate: float, data: dict) -> list:
     for gene in chrom:
         g = gene.copy()
         if random.random() < rate:
-            pool = data["ac_rooms"] if g["needs_ac"] and data["ac_rooms"] else data["rooms"]
-            g["room_id"] = random.choice(pool)["id"]
+            g["room_id"] = _pick_room(g["needs_ac"], data)["id"]
         result.append(g)
     return result
 
 
+def check_capacity(data: dict) -> list:
+    total_rooms = len(data["rooms"])
+    time_buckets: dict = defaultdict(int)
+    for cls in data["classes"]:
+        for h in range(cls["start_hour"], cls["end_hour"]):
+            time_buckets[(cls["day_of_week"], h)] += 1
+
+    warnings = []
+    days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+    for (day, hour), count in time_buckets.items():
+        if count > total_rooms:
+            warnings.append(
+                f"{days[day]} {hour:02d}:00 has {count} slots but only {total_rooms} rooms — "
+                f"{count - total_rooms} conflict(s) unavoidable"
+            )
+    return warnings
+
+
 def run_genetic_algorithm() -> dict:
     data = load_data()
-    pop  = init_population(data)
+
+    capacity_warnings = check_capacity(data)
+    for w in capacity_warnings:
+        print(f"  [CAPACITY WARNING] {w}")
+
+    pop = init_population(data)
 
     best_chrom = None
     best_fit   = -float("inf")
@@ -247,7 +284,10 @@ def run_genetic_algorithm() -> dict:
         gini_workload   = float(best_gw),
         gini_room_usage = float(best_gr),
         gini_ac_access  = float(best_ga),
-        notes           = f"GA pop={POPULATION_SIZE} gen={MAX_GENERATIONS} slots={len(data['classes'])} violations={best_hv}",
+        notes           = (
+            f"GA pop={POPULATION_SIZE} gen={MAX_GENERATIONS} "
+            f"slots={len(data['classes'])} violations={best_hv}"
+        ),
     )
 
     if err:
@@ -259,11 +299,12 @@ def run_genetic_algorithm() -> dict:
         print(f"save_schedule_slots errors: {slot_err}")
 
     return {
-        "schedule_id":     sched_id,
-        "fitness_score":   best_fit,
-        "hard_violations": best_hv,
-        "soft_score":      soft_score,
-        "gini_workload":   best_gw,
-        "gini_room_usage": best_gr,
-        "gini_ac_access":  best_ga,
+        "schedule_id":       sched_id,
+        "fitness_score":     best_fit,
+        "hard_violations":   best_hv,
+        "soft_score":        soft_score,
+        "gini_workload":     best_gw,
+        "gini_room_usage":   best_gr,
+        "gini_ac_access":    best_ga,
+        "capacity_warnings": capacity_warnings,
     }

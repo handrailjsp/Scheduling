@@ -28,21 +28,20 @@ export default function ProfessorSidebar({
       <div className="flex items-center justify-between px-5 py-4 border-b border-border">
         <button
           onClick={() => setExpanded(p => !p)}
-          className="flex items-center gap-2 text-sm font-bold uppercase tracking-wider text-foreground hover:text-primary transition-colors"
+          className="flex items-center gap-2 text-sm font-bold uppercase tracking-wider text-foreground hover:text-primary transition-colors flex-1 min-w-0"
         >
-          <User className="w-4 h-4" />
-          Professors
-          {expanded ? (
-            <ChevronUp className="w-3 h-3 ml-auto" />
-          ) : (
-            <ChevronDown className="w-3 h-3 ml-auto" />
-          )}
+          <User className="w-4 h-4 shrink-0" />
+          <span className="truncate">Professors</span>
+          {expanded
+            ? <ChevronUp className="w-3 h-3 ml-auto shrink-0" />
+            : <ChevronDown className="w-3 h-3 ml-auto shrink-0" />
+          }
         </button>
         <Button
           onClick={onAddProfessor}
           variant="ghost"
           size="icon"
-          className="h-7 w-7 shrink-0"
+          className="h-7 w-7 shrink-0 ml-2"
         >
           <Plus className="w-4 h-4" />
         </Button>
@@ -52,7 +51,7 @@ export default function ProfessorSidebar({
         <div className="flex-1 overflow-y-auto py-2">
           {professors.length === 0 ? (
             <p className="text-xs text-muted-foreground text-center py-8 px-4">
-              No professors yet. Add one to get started.
+              No professors yet. Click + to add one.
             </p>
           ) : (
             professors.map(prof => (
@@ -60,7 +59,8 @@ export default function ProfessorSidebar({
                 key={prof.id}
                 className={cn(
                   "group flex items-center justify-between px-4 py-3 cursor-pointer transition-colors hover:bg-muted/50",
-                  selectedProfessor?.id === prof.id && "bg-primary/10 border-r-2 border-primary",
+                  selectedProfessor?.id === prof.id &&
+                    "bg-primary/10 border-r-2 border-primary",
                 )}
                 onClick={() => onSelectProfessor(prof)}
               >

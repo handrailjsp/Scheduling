@@ -3,7 +3,7 @@
 import { useState } from "react"
 import { getWeekDays } from "@/lib/date-utils"
 import { Button } from "@/components/ui/button"
-import { ChevronLeft, ChevronRight, Plus, Trash2, Snowflake, AlertCircle } from "lucide-react"
+import { ChevronLeft, ChevronRight, Plus, Trash2, Snowflake, AlertCircle, Clock } from "lucide-react"
 import type { Professor, TimetableSlot } from "@/app/admin/page"
 import TimetableSlotModal from "@/components/timetable-slot-modal"
 import { cn } from "@/lib/utils"
@@ -13,6 +13,10 @@ export const SCHEDULE_END_HOUR   = 19
 
 export function clampStartHour(start: number, duration = 1): number {
   return Math.max(SCHEDULE_START_HOUR, Math.min(start, SCHEDULE_END_HOUR - duration))
+}
+
+function isPending(room: string | undefined): boolean {
+  return !room || room === "PENDING" || room === "TBD" || room === ""
 }
 
 interface AdminCalendarGridProps {
@@ -65,14 +69,17 @@ export default function AdminCalendarGrid({
       s => s.dayOfWeek === day && hr >= s.hour && hr < s.endHour,
     )
 
-  const getConflicts = (day: number, hr: number, room: string) =>
-    (allSlots.length > 0 ? allSlots : timetableSlots).filter(
+  const getConflicts = (day: number, hr: number, room: string) => {
+    if (isPending(room)) return []
+    return (allSlots.length > 0 ? allSlots : timetableSlots).filter(
       s =>
         s.dayOfWeek === day &&
+        !isPending(s.room) &&
         s.room === room &&
         hr >= s.hour &&
         hr < s.endHour,
     )
+  }
 
   const inPreview = (day: number, hr: number) =>
     !!previewSlot &&
@@ -155,15 +162,19 @@ export default function AdminCalendarGrid({
 
         <div className="flex items-center gap-4 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
           <div className="flex items-center gap-1.5">
-            <span className="w-3 h-3 rounded-sm bg-emerald-500 inline-block" />
+            <span className="w-3 h-3 rounded-sm bg-emerald-500 inline-block shrink-0" />
             Standard Room
           </div>
           <div className="flex items-center gap-1.5">
-            <span className="w-3 h-3 rounded-sm bg-blue-500 inline-block" />
-            AC-Preferred
+            <span className="w-3 h-3 rounded-sm bg-blue-500 inline-block shrink-0" />
+            AC Preferred
           </div>
           <div className="flex items-center gap-1.5">
-            <span className="w-3 h-3 rounded-sm bg-red-500 inline-block" />
+            <span className="w-3 h-3 rounded-sm bg-amber-400 inline-block shrink-0" />
+            Pending Assignment
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="w-3 h-3 rounded-sm bg-red-500 inline-block shrink-0" />
             Room Conflict
           </div>
         </div>
@@ -179,10 +190,7 @@ export default function AdminCalendarGrid({
                 date.getMonth()    === today.getMonth() &&
                 date.getFullYear() === today.getFullYear()
               return (
-                <div
-                  key={date.toISOString()}
-                  className="flex-1 text-center py-4 bg-muted/5"
-                >
+                <div key={date.toISOString()} className="flex-1 text-center py-4 bg-muted/5">
                   <div className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest">
                     {date.toLocaleDateString("en-US", { weekday: "short" })}
                   </div>
@@ -214,10 +222,7 @@ export default function AdminCalendarGrid({
 
           <div className="flex flex-1 divide-x divide-border">
             {weekDays.map((date, dayOfWeek) => (
-              <div
-                key={date.toISOString()}
-                className="flex-1 divide-y divide-border/50 relative"
-              >
+              <div key={date.toISOString()} className="flex-1 divide-y divide-border/50 relative">
                 {hours.map(hr => {
                   const slot     = slotAt(dayOfWeek, hr)
                   const spanning = slotSpanning(dayOfWeek, hr)
@@ -225,7 +230,8 @@ export default function AdminCalendarGrid({
                   const preview  = inPreview(dayOfWeek, hr)
 
                   const activeRoom  = slot?.room || spanning?.room
-                  const cfls        = activeRoom
+                  const pending     = isPending(activeRoom)
+                  const cfls        = activeRoom && !pending
                     ? getConflicts(dayOfWeek, hr, activeRoom)
                     : []
                   const hasConflict = cfls.length > 1
@@ -236,11 +242,12 @@ export default function AdminCalendarGrid({
                       className={cn(
                         "h-24 transition-all relative group cursor-pointer flex items-center justify-center border-b border-border/30",
                         preview && "bg-primary/10 border-2 border-primary/40 z-10",
-                        (slot || inSpan) &&
-                          !hasConflict &&
-                          (spanning?.needsAC
-                            ? "bg-blue-50/80 border-l-4 border-blue-500 hover:bg-blue-100"
-                            : "bg-emerald-50/80 border-l-4 border-emerald-500 hover:bg-emerald-100"),
+                        (slot || inSpan) && pending && !hasConflict &&
+                          "bg-amber-50/80 border-l-4 border-amber-400 hover:bg-amber-100",
+                        (slot || inSpan) && !pending && !hasConflict && spanning?.needsAC &&
+                          "bg-blue-50/80 border-l-4 border-blue-500 hover:bg-blue-100",
+                        (slot || inSpan) && !pending && !hasConflict && !spanning?.needsAC &&
+                          "bg-emerald-50/80 border-l-4 border-emerald-500 hover:bg-emerald-100",
                         hasConflict &&
                           "bg-red-50 border-l-4 border-red-500 hover:bg-red-100",
                       )}
@@ -266,19 +273,28 @@ export default function AdminCalendarGrid({
                               )}>
                                 {slot.subject}
                               </p>
-                              {slot.needsAC && !hasConflict && (
+                              {slot.needsAC && !hasConflict && !pending && (
                                 <Snowflake className="w-3 h-3 text-blue-500 animate-pulse shrink-0" />
                               )}
                             </div>
-                            <p className={cn(
-                              "text-[10px] font-medium",
-                              hasConflict
-                                ? "text-red-600 font-bold"
-                                : "text-muted-foreground",
-                            )}>
-                              Room {slot.room}
-                              {hasConflict && " — DOUBLE BOOKED"}
-                            </p>
+                            {pending ? (
+                              <div className="flex items-center gap-1 text-amber-600">
+                                <Clock className="w-3 h-3 shrink-0" />
+                                <p className="text-[10px] font-semibold">
+                                  Pending — run Generate Schedule
+                                </p>
+                              </div>
+                            ) : (
+                              <p className={cn(
+                                "text-[10px] font-medium",
+                                hasConflict
+                                  ? "text-red-600 font-bold"
+                                  : "text-muted-foreground",
+                              )}>
+                                Room {slot.room}
+                                {hasConflict && " — DOUBLE BOOKED"}
+                              </p>
+                            )}
                           </div>
                           <div className="flex justify-end">
                             <button

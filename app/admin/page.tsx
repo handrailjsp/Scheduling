@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import {
   LogOut, Sparkles, Loader2, CheckCircle,
-  AlertCircle, DoorOpen, ChevronDown, ChevronUp, X
+  AlertCircle, DoorOpen, ChevronDown, ChevronUp, X, TriangleAlert
 } from "lucide-react"
 import ProfessorSidebar from "@/components/professor-sidebar"
 import AdminCalendarGrid from "@/components/admin-calendar-grid"
@@ -41,6 +41,7 @@ export interface ScheduleResult {
   gini_ac_access?: number
   status: string
   notes: string
+  capacity_warnings?: string[]
 }
 
 interface RoomStatus {
@@ -48,12 +49,6 @@ interface RoomStatus {
   is_ac: boolean
   room_type: string
   total_hours_booked: number
-  slots: Array<{
-    day_of_week: number
-    hour: number
-    end_hour: number
-    subject: string
-  }>
 }
 
 interface ToastState {
@@ -111,11 +106,9 @@ export default function AdminPage() {
     setLoadingRooms(true)
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
-      const res = await fetch(`${apiUrl}/api/rooms`)
-      const data = await res.json()
-      if (data.success) {
-        setRoomsData(data.rooms)
-      }
+      const res    = await fetch(`${apiUrl}/api/rooms`)
+      const data   = await res.json()
+      if (data.success) setRoomsData(data.rooms)
     } catch {
       showToast("Could not load room data", "error")
     } finally {
@@ -124,9 +117,7 @@ export default function AdminPage() {
   }
 
   const handleToggleRooms = () => {
-    if (!showRooms && roomsData.length === 0) {
-      fetchRooms()
-    }
+    if (!showRooms && roomsData.length === 0) fetchRooms()
     setShowRooms(prev => !prev)
   }
 
@@ -141,9 +132,7 @@ export default function AdminPage() {
         department: p.department,
       }))
       setProfessors(formatted)
-      if (formatted.length > 0 && !selectedProfessor) {
-        setSelectedProfessor(formatted[0])
-      }
+      if (formatted.length > 0 && !selectedProfessor) setSelectedProfessor(formatted[0])
     } catch (err: any) {
       showToast("Failed to load professors: " + err.message, "error")
     }
@@ -198,20 +187,28 @@ export default function AdminPage() {
     }
   }
 
+  const pendingCount = timetableSlots.filter(
+    s => s.room === "PENDING" || s.room === "TBD" || !s.room,
+  ).length
+
   const handleGenerateSchedule = async () => {
     setGeneratingSchedule(true)
     setScheduleError(null)
     setScheduleResult(null)
 
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
+      const apiUrl  = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
       const response = await fetch(`${apiUrl}/api/generate-schedule?runs=1`, {
         method: "POST",
       })
 
-      if (!response.ok) throw new Error(`API Error: ${response.status}`)
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}))
+        throw new Error(errData.detail || `API Error: ${response.status}`)
+      }
 
       const data = await response.json()
+
       if (data.success) {
         setScheduleResult({
           id:                         data.schedule_id,
@@ -223,6 +220,7 @@ export default function AdminPage() {
           gini_ac_access:             data.gini_ac_access,
           status:                     data.auto_approved ? "approved" : "pending",
           notes:                      data.message || "Optimized",
+          capacity_warnings:          data.capacity_warnings || [],
         })
         await fetchAllTimetableSlots()
         if (showRooms) await fetchRooms()
@@ -244,7 +242,7 @@ export default function AdminPage() {
       hour:         slot.hour,
       end_hour:     slot.endHour,
       subject:      slot.subject,
-      room:         slot.room,
+      room:         "PENDING",
       needs_ac:     slot.needsAC,
     }])
     if (error) {
@@ -261,7 +259,6 @@ export default function AdminPage() {
       hour:         updates.hour,
       end_hour:     updates.endHour,
       subject:      updates.subject,
-      room:         updates.room,
       needs_ac:     updates.needsAC,
     }).eq("id", id)
     if (error) {
@@ -294,13 +291,14 @@ export default function AdminPage() {
 
       {toast && (
         <div className={cn(
-          "fixed top-4 left-1/2 -translate-x-1/2 z-[100] px-5 py-3 rounded-lg shadow-xl text-white text-sm font-medium flex items-center gap-3 min-w-72",
+          "fixed top-4 left-1/2 -translate-x-1/2 z-[100] px-5 py-3 rounded-lg shadow-xl text-white text-sm font-medium flex items-center gap-3 min-w-72 animate-in fade-in slide-in-from-top-2",
           toast.type === "success" && "bg-green-600",
           toast.type === "error"   && "bg-red-600",
           toast.type === "info"    && "bg-blue-600",
         )}>
           {toast.type === "success" && <CheckCircle className="w-4 h-4 shrink-0" />}
           {toast.type === "error"   && <AlertCircle className="w-4 h-4 shrink-0" />}
+          {toast.type === "info"    && <AlertCircle className="w-4 h-4 shrink-0" />}
           <span className="flex-1">{toast.message}</span>
           <button onClick={() => setToast(null)} className="hover:opacity-70">
             <X className="w-4 h-4" />
@@ -311,7 +309,9 @@ export default function AdminPage() {
       {confirmDialog && (
         <div className="fixed inset-0 bg-black/50 z-[90] flex items-center justify-center">
           <div className="bg-card border border-border rounded-xl p-6 w-full max-w-sm shadow-2xl">
-            <p className="text-sm font-medium text-foreground mb-5">{confirmDialog.message}</p>
+            <p className="text-sm font-medium text-foreground mb-5">
+              {confirmDialog.message}
+            </p>
             <div className="flex gap-3">
               <Button
                 variant="outline"
@@ -351,9 +351,17 @@ export default function AdminPage() {
               <p className="text-sm text-muted-foreground">{selectedProfessor.name}</p>
             )}
           </div>
-          <Button onClick={() => router.push("/")} variant="ghost" size="icon">
-            <LogOut className="w-4 h-4" />
-          </Button>
+          <div className="flex items-center gap-3">
+            {pendingCount > 0 && (
+              <div className="flex items-center gap-1.5 bg-amber-500/10 border border-amber-500/30 text-amber-600 text-xs font-semibold px-3 py-1.5 rounded-full">
+                <TriangleAlert className="w-3.5 h-3.5" />
+                {pendingCount} slot{pendingCount > 1 ? "s" : ""} need room assignment — run Generate Schedule
+              </div>
+            )}
+            <Button onClick={() => router.push("/")} variant="ghost" size="icon">
+              <LogOut className="w-4 h-4" />
+            </Button>
+          </div>
         </div>
 
         <div className="flex-1 overflow-auto">
@@ -389,11 +397,10 @@ export default function AdminPage() {
               <DoorOpen className="h-4 w-4 text-blue-500" />
               <span className="font-semibold text-sm">Room Availability</span>
             </div>
-            {showRooms ? (
-              <ChevronDown className="h-4 w-4 text-muted-foreground" />
-            ) : (
-              <ChevronUp className="h-4 w-4 text-muted-foreground" />
-            )}
+            {showRooms
+              ? <ChevronDown className="h-4 w-4 text-muted-foreground" />
+              : <ChevronUp className="h-4 w-4 text-muted-foreground" />
+            }
           </button>
 
           {showRooms && (
@@ -409,14 +416,14 @@ export default function AdminPage() {
                     <span>Hours Booked</span>
                   </div>
                   {roomsData.map(room => {
-                    const pct = Math.min((room.total_hours_booked / maxHoursInWeek) * 100, 100)
+                    const pct    = Math.min((room.total_hours_booked / maxHoursInWeek) * 100, 100)
                     const isFree = room.total_hours_booked === 0
                     return (
                       <div key={room.id}>
                         <div className="flex items-center justify-between mb-1">
                           <div className="flex items-center gap-2">
                             <span className={cn(
-                              "w-2 h-2 rounded-full",
+                              "w-2 h-2 rounded-full shrink-0",
                               isFree ? "bg-green-500" : "bg-orange-500",
                             )} />
                             <span className="text-xs font-semibold">{room.id}</span>
@@ -436,7 +443,11 @@ export default function AdminPage() {
                           <div
                             className={cn(
                               "h-full rounded-full transition-all",
-                              isFree ? "bg-green-400" : pct > 60 ? "bg-red-500" : "bg-orange-400",
+                              isFree
+                                ? "bg-green-400"
+                                : pct > 60
+                                  ? "bg-red-500"
+                                  : "bg-orange-400",
                             )}
                             style={{ width: `${pct}%` }}
                           />
@@ -467,17 +478,16 @@ export default function AdminPage() {
             disabled={generatingSchedule}
             className="w-full bg-purple-600 hover:bg-purple-700 text-white mb-4 shadow-lg shadow-purple-500/20"
           >
-            {generatingSchedule ? (
-              <Loader2 className="animate-spin mr-2 h-4 w-4" />
-            ) : (
-              <Sparkles className="mr-2 h-4 w-4" />
-            )}
+            {generatingSchedule
+              ? <Loader2 className="animate-spin mr-2 h-4 w-4" />
+              : <Sparkles className="mr-2 h-4 w-4" />
+            }
             {generatingSchedule ? "Optimizing..." : "Generate Schedule"}
           </Button>
 
           {scheduleError && (
             <div className="p-3 bg-red-500/10 border border-red-500/20 rounded text-red-500 text-xs flex gap-2 mb-3">
-              <AlertCircle className="h-4 w-4 shrink-0" />
+              <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
               <p>{scheduleError}</p>
             </div>
           )}
@@ -488,6 +498,22 @@ export default function AdminPage() {
                 <span>GA OPTIMIZATION RESULT</span>
                 <span>#{scheduleResult.id}</span>
               </div>
+
+              {scheduleResult.capacity_warnings && scheduleResult.capacity_warnings.length > 0 && (
+                <div className="bg-amber-500/10 border border-amber-500/30 rounded p-2 space-y-1">
+                  <p className="font-bold text-amber-700 flex items-center gap-1">
+                    <TriangleAlert className="w-3 h-3" />
+                    Capacity Warnings
+                  </p>
+                  {scheduleResult.capacity_warnings.map((w, i) => (
+                    <p key={i} className="text-amber-600 text-[10px]">{w}</p>
+                  ))}
+                  <p className="text-amber-500 text-[9px] pt-1">
+                    More slots overlap than available rooms at these times. Spread these sessions across different hours to resolve conflicts.
+                  </p>
+                </div>
+              )}
+
               <div className="grid grid-cols-2 gap-4">
                 <div className="bg-background p-2 rounded border border-border">
                   <p className="text-muted-foreground text-[10px]">Conflicts</p>
@@ -508,14 +534,18 @@ export default function AdminPage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-2 text-[10px]">
+              <div className="grid grid-cols-2 gap-2">
                 <div className="bg-background p-2 rounded border border-border">
-                  <p className="text-muted-foreground">Workload Gini</p>
-                  <p className="font-bold">{scheduleResult.gini_workload?.toFixed(3) || "0.000"}</p>
+                  <p className="text-muted-foreground text-[10px]">Workload Gini</p>
+                  <p className="font-bold text-sm">
+                    {scheduleResult.gini_workload?.toFixed(3) || "0.000"}
+                  </p>
                 </div>
                 <div className="bg-background p-2 rounded border border-border">
-                  <p className="text-muted-foreground">Room Gini</p>
-                  <p className="font-bold">{scheduleResult.gini_room_usage?.toFixed(3) || "0.000"}</p>
+                  <p className="text-muted-foreground text-[10px]">Room Gini</p>
+                  <p className="font-bold text-sm">
+                    {scheduleResult.gini_room_usage?.toFixed(3) || "0.000"}
+                  </p>
                 </div>
               </div>
 

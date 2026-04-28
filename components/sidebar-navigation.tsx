@@ -54,45 +54,10 @@ export default function SidebarNavigation({ currentDate, onSelectDate, view, onV
   }
 
   return (
-    <div className="w-72 border-r border-border bg-muted/20 flex flex-col">
-      <div className="p-6 border-b border-border">
-        <div className="space-y-2">
-          <Button
-            onClick={() => onViewChange("week")}
-            variant="ghost"
-            className={cn(
-              "w-full justify-start text-sm font-medium transition-colors",
-              view === "week" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
-            )}
-          >
-            Week
-          </Button>
-          <Button
-            onClick={() => onViewChange("month")}
-            variant="ghost"
-            className={cn(
-              "w-full justify-start text-sm font-medium transition-colors",
-              view === "month" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
-            )}
-          >
-            Month
-          </Button>
-          <Button
-            onClick={() => onViewChange("day")}
-            variant="ghost"
-            className={cn(
-              "w-full justify-start text-sm font-medium transition-colors",
-              view === "day" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
-            )}
-          >
-            Day
-          </Button>
-        </div>
-      </div>
-
+    <div className="w-80 flex-shrink-0 border-r border-border bg-muted/20 flex flex-col">
       <div className="p-6 border-b border-border flex-1 overflow-y-auto">
-        <div className="mb-4">
-          <div className="flex items-center justify-between mb-4">
+        <div className="mb-8">
+          <div className="flex items-center justify-between mb-6">
             <h3 className="text-sm font-semibold">
               {displayMonth.toLocaleDateString("en-US", { month: "long", year: "numeric" })}
             </h3>
@@ -117,7 +82,7 @@ export default function SidebarNavigation({ currentDate, onSelectDate, view, onV
           </div>
 
           {/* Days of week header */}
-          <div className="grid grid-cols-7 gap-1 mb-2">
+          <div className="grid grid-cols-7 gap-2 mb-3 mt-4">
             {["S", "M", "T", "W", "T", "F", "S"].map((day, index) => (
               <div key={index} className="text-center text-xs font-medium text-muted-foreground">
                 {day}
@@ -126,7 +91,7 @@ export default function SidebarNavigation({ currentDate, onSelectDate, view, onV
           </div>
 
           {/* Calendar days */}
-          <div className="grid grid-cols-7 gap-1">
+          <div className="grid grid-cols-7 gap-2">
             {days.map((day, index) => (
               <button
                 key={index}
