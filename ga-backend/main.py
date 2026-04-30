@@ -7,7 +7,11 @@ app = FastAPI(title="EQ-Schedule API", version="3.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=[
+        "http://localhost:3000",
+        "https://scheduling-s69x.vercel.app",
+        "https://scheduling-s69x-2ezleyfdo-joachimmsp-gmailcoms-projects.vercel.app"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -102,4 +106,10 @@ async def generate_schedule(runs: int = 1):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
+    import os
+
+    
+    port = int(os.environ.get("PORT", 8000))
+
+
+    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=False)
