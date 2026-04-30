@@ -54,7 +54,7 @@
       try {
         setLoading(true)
         setIsRefreshing(true)
-        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/timetable`)
+        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://scheduling-s69x.vercel.app"}/api/timetable`)
         const data = await res.json()
         const slots: ScheduleSlot[] = Array.isArray(data) ? data : (data.data || [])
         const colorMap = new Map(); let colorIdx = 0;
