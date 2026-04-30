@@ -24,11 +24,12 @@ export interface TimetableSlot {
   id: string
   professorId: string
   dayOfWeek: number
-  hour: number
-  endHour: number
+  hour: number | null
+  endHour: number | null
   subject: string
   room: string
   needsAC?: boolean
+  aiAssignTime?: boolean
 }
 
 export interface ScheduleResult {
@@ -237,13 +238,14 @@ export default function AdminPage() {
 
   const handleAddTimetableSlot = async (slot: Omit<TimetableSlot, "id">) => {
     const { error } = await supabase.from("timetable_slots").insert([{
-      professor_id: slot.professorId,
-      day_of_week:  slot.dayOfWeek,
-      hour:         slot.hour,
-      end_hour:     slot.endHour,
-      subject:      slot.subject,
-      room:         "PENDING",
-      needs_ac:     slot.needsAC,
+      professor_id:   slot.professorId,
+      day_of_week:    slot.dayOfWeek,
+      hour:           slot.hour ?? null,
+      end_hour:       slot.endHour ?? null,
+      subject:        slot.subject,
+      room:           slot.aiAssignTime ? "AUTO" : "PENDING",
+      needs_ac:       slot.needsAC,
+      ai_assign_time: slot.aiAssignTime ?? false,
     }])
     if (error) {
       showToast(error.message, "error")

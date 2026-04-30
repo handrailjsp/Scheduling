@@ -80,12 +80,12 @@ export default function TimetableSlotModal({
     onSubmit({
       professorId: professor.id,
       dayOfWeek: slotDate.getDay(),
-      // Send -1 to let the Genetic Algorithm handle placement
-      hour: autoAssign ? -1 : startH,
-      endHour: autoAssign ? -1 : endH,
+      hour: autoAssign ? null : startH,
+      endHour: autoAssign ? null : endH,
       subject: subject.trim(),
       room: autoAssign ? "AUTO" : (existingSlot?.room || "PENDING"),
       needsAC,
+      aiAssignTime: autoAssign,
     })
     onClose()
   }

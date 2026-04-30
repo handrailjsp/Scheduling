@@ -7,9 +7,9 @@ app = FastAPI(title="EQ-Schedule API", version="3.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,
-    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_origins=["http://localhost:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
     allow_headers=["*"],
 )
 
@@ -47,38 +47,6 @@ async def health():
 @app.get("/api/timetable")
 async def get_timetable():
     return database.get_timetable_slots()
-
-
-@app.get("/api/rooms")
-async def get_rooms():
-    rooms = database.get_all_rooms()
-    slots = database.get_all_timetable_slots()
-
-    result = []
-    for room in rooms:
-        rid = room["id"]
-        room_slots = [
-            {
-                "day_of_week":  s["day_of_week"],
-                "hour":         s["hour"],
-                "end_hour":     s["end_hour"],
-                "subject":      s.get("subject", ""),
-                "professor_id": s.get("professor_id", ""),
-            }
-            for s in slots if s.get("room") == rid
-        ]
-        total_hours = sum(
-            int(s["end_hour"]) - int(s["hour"]) for s in room_slots
-        )
-        result.append({
-            "id":                 rid,
-            "is_ac":              room.get("is_ac", False),
-            "room_type":          room.get("room_type", "Lecture"),
-            "total_hours_booked": total_hours,
-            "slots":              room_slots,
-        })
-
-    return {"success": True, "rooms": result}
 
 
 @app.get("/api/schedules")
@@ -119,17 +87,16 @@ async def generate_schedule(runs: int = 1):
         raise HTTPException(status_code=500, detail="GA failed — check terminal logs.")
 
     return {
-        "success":            True,
-        "schedule_id":        best_result["schedule_id"],
-        "fitness_score":      best_result["fitness_score"],
-        "hard_violations":    best_result["hard_violations"],
-        "soft_score":         best_result["soft_score"],
-        "gini_workload":      best_result["gini_workload"],
-        "gini_room_usage":    best_result["gini_room_usage"],
-        "gini_ac_access":     best_result["gini_ac_access"],
-        "auto_approved":      best_result["hard_violations"] == 0,
-        "runs_completed":     runs,
-        "capacity_warnings":  best_result.get("capacity_warnings", []),
+        "success":         True,
+        "schedule_id":     best_result["schedule_id"],
+        "fitness_score":   best_result["fitness_score"],
+        "hard_violations": best_result["hard_violations"],
+        "soft_score":      best_result["soft_score"],
+        "gini_workload":   best_result["gini_workload"],
+        "gini_room_usage": best_result["gini_room_usage"],
+        "gini_ac_access":  best_result["gini_ac_access"],
+        "auto_approved":   best_result["hard_violations"] == 0,
+        "runs_completed":  runs,
     }
 
 

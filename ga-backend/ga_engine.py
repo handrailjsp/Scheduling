@@ -19,7 +19,10 @@ W_GINI_R =       300
 W_GINI_A =       400
 W_AC_BON =       100
 
-AC_PREFER_PROB = 0.85
+SCHEDULE_DAYS  = [1, 2, 3, 4, 5]
+SCHEDULE_START = 8
+SCHEDULE_END   = 19
+AC_ROOM_BIAS   = 0.70
 
 
 def gini(values: list) -> float:
@@ -47,13 +50,11 @@ def load_data() -> dict:
 
     rooms = []
     for r in rooms_raw:
-        room_type = str(r.get("room_type", "")).lower()
-        is_lab    = room_type == "laboratory"
+        is_lab = str(r.get("room_type", "")).lower() == "laboratory"
         rooms.append({
             "id":         str(r["id"]),
             "is_ac":      False if is_lab else bool(r.get("is_ac", False)),
             "is_faculty": bool(r.get("is_faculty", False)),
-            "room_type":  r.get("room_type", "Lecture"),
         })
 
     schedulable = [r for r in rooms if not r["is_faculty"]]
@@ -64,15 +65,26 @@ def load_data() -> dict:
 
     classes = []
     for s in slots:
-        raw_end = s.get("end_hour") or (int(s["hour"]) + 1)
+        raw_hour  = int(s["hour"])
+        raw_end_v = s.get("end_hour")
+        raw_end   = int(raw_end_v) if raw_end_v else (raw_hour + 1)
+        ai_assign = bool(s.get("ai_assign_time", False))
+
+        if ai_assign:
+            duration = 1
+        else:
+            duration = max(1, raw_end - raw_hour)
+
         classes.append({
             "slot_id":      str(s["id"]),
             "professor_id": str(s["professor_id"]),
             "subject":      s.get("subject", "TBA"),
             "needs_ac":     bool(s.get("needs_ac", False)),
+            "ai_assign":    ai_assign,
             "day_of_week":  int(s["day_of_week"]),
-            "start_hour":   int(s["hour"]),
-            "end_hour":     int(raw_end),
+            "start_hour":   raw_hour,
+            "end_hour":     raw_end,
+            "duration":     duration,
         })
 
     return {
@@ -83,27 +95,34 @@ def load_data() -> dict:
     }
 
 
-def _pick_room(needs_ac: bool, data: dict) -> dict:
-    ac_rooms = data["ac_rooms"]
-    all_rooms = data["rooms"]
-
-    if needs_ac and ac_rooms:
-        if random.random() < AC_PREFER_PROB:
-            return random.choice(ac_rooms)
-        return random.choice(all_rooms)
-
-    return random.choice(all_rooms)
+def pick_room(needs_ac: bool, data: dict) -> dict:
+    if needs_ac and data["ac_rooms"] and random.random() < AC_ROOM_BIAS:
+        return random.choice(data["ac_rooms"])
+    return random.choice(data["rooms"])
 
 
 def random_gene(cls: dict, data: dict) -> dict:
-    room = _pick_room(cls["needs_ac"], data)
+    room = pick_room(cls["needs_ac"], data)
+
+    if cls["ai_assign"]:
+        duration = cls["duration"]
+        max_start = max(SCHEDULE_START, SCHEDULE_END - duration)
+        start = random.randint(SCHEDULE_START, max_start)
+        end   = min(start + duration, SCHEDULE_END)
+        day   = cls["day_of_week"]   # respect user's chosen day
+    else:
+        start = cls["start_hour"]
+        end   = cls["end_hour"]
+        day   = cls["day_of_week"]
+
     return {
         "slot_id":      cls["slot_id"],
         "professor_id": cls["professor_id"],
         "needs_ac":     cls["needs_ac"],
-        "day_of_week":  cls["day_of_week"],
-        "start_hour":   cls["start_hour"],
-        "end_hour":     cls["end_hour"],
+        "ai_assign":    cls["ai_assign"],
+        "day_of_week":  day,
+        "start_hour":   start,
+        "end_hour":     end,
         "room_id":      room["id"],
     }
 
@@ -151,15 +170,21 @@ def gini_room_usage(chrom: list, rooms: list) -> float:
 
 
 def gini_ac_access(chrom: list, room_lookup: dict) -> float:
+    all_prof_ids = {g["professor_id"] for g in chrom}
+    if not all_prof_ids:
+        return 0.0
+
+    ac_hrs = {pid: 0.0 for pid in all_prof_ids}
+    for g in chrom:
+        pid = g["professor_id"]
+        if room_lookup.get(g["room_id"], {}).get("is_ac"):
+            ac_hrs[pid] += g["end_hour"] - g["start_hour"]
+
     profs_needing_ac = {g["professor_id"] for g in chrom if g["needs_ac"]}
     if not profs_needing_ac:
         return 0.0
-    ac_hrs = {pid: 0.0 for pid in profs_needing_ac}
-    for g in chrom:
-        pid = g["professor_id"]
-        if pid in profs_needing_ac and room_lookup.get(g["room_id"], {}).get("is_ac"):
-            ac_hrs[pid] += g["end_hour"] - g["start_hour"]
-    return gini(list(ac_hrs.values()))
+
+    return gini([ac_hrs[pid] for pid in profs_needing_ac])
 
 
 def fitness(chrom: list, data: dict) -> tuple:
@@ -191,41 +216,27 @@ def crossover(p1: list, p2: list) -> tuple:
 
 
 def mutate(chrom: list, rate: float, data: dict) -> list:
+    cls_lookup = {c["slot_id"]: c for c in data["classes"]}
     result = []
     for gene in chrom:
         g = gene.copy()
         if random.random() < rate:
-            g["room_id"] = _pick_room(g["needs_ac"], data)["id"]
+            g["room_id"] = pick_room(g["needs_ac"], data)["id"]
+        if g.get("ai_assign") and random.random() < rate:
+            cls      = cls_lookup.get(g["slot_id"])
+            duration = cls["duration"] if cls else 1
+            max_start = max(SCHEDULE_START, SCHEDULE_END - duration)
+            start    = random.randint(SCHEDULE_START, max_start)
+            g["start_hour"] = start
+            g["end_hour"]   = min(start + duration, SCHEDULE_END)
+            # day_of_week is intentionally left unchanged
         result.append(g)
     return result
 
 
-def check_capacity(data: dict) -> list:
-    total_rooms = len(data["rooms"])
-    time_buckets: dict = defaultdict(int)
-    for cls in data["classes"]:
-        for h in range(cls["start_hour"], cls["end_hour"]):
-            time_buckets[(cls["day_of_week"], h)] += 1
-
-    warnings = []
-    days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
-    for (day, hour), count in time_buckets.items():
-        if count > total_rooms:
-            warnings.append(
-                f"{days[day]} {hour:02d}:00 has {count} slots but only {total_rooms} rooms — "
-                f"{count - total_rooms} conflict(s) unavoidable"
-            )
-    return warnings
-
-
 def run_genetic_algorithm() -> dict:
     data = load_data()
-
-    capacity_warnings = check_capacity(data)
-    for w in capacity_warnings:
-        print(f"  [CAPACITY WARNING] {w}")
-
-    pop = init_population(data)
+    pop  = init_population(data)
 
     best_chrom = None
     best_fit   = -float("inf")
@@ -284,10 +295,7 @@ def run_genetic_algorithm() -> dict:
         gini_workload   = float(best_gw),
         gini_room_usage = float(best_gr),
         gini_ac_access  = float(best_ga),
-        notes           = (
-            f"GA pop={POPULATION_SIZE} gen={MAX_GENERATIONS} "
-            f"slots={len(data['classes'])} violations={best_hv}"
-        ),
+        notes           = f"GA pop={POPULATION_SIZE} gen={MAX_GENERATIONS} slots={len(data['classes'])} violations={best_hv}",
     )
 
     if err:
@@ -299,12 +307,11 @@ def run_genetic_algorithm() -> dict:
         print(f"save_schedule_slots errors: {slot_err}")
 
     return {
-        "schedule_id":       sched_id,
-        "fitness_score":     best_fit,
-        "hard_violations":   best_hv,
-        "soft_score":        soft_score,
-        "gini_workload":     best_gw,
-        "gini_room_usage":   best_gr,
-        "gini_ac_access":    best_ga,
-        "capacity_warnings": capacity_warnings,
+        "schedule_id":     sched_id,
+        "fitness_score":   best_fit,
+        "hard_violations": best_hv,
+        "soft_score":      soft_score,
+        "gini_workload":   best_gw,
+        "gini_room_usage": best_gr,
+        "gini_ac_access":  best_ga,
     }
