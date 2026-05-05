@@ -6,132 +6,172 @@ import database
 load_dotenv()
 random.seed(time.time())
 
-POPULATION_SIZE    = int(os.getenv("POPULATION_SIZE",   50))
-MAX_GENERATIONS    = int(os.getenv("MAX_GENERATIONS",  200))
-CROSSOVER_PROB     = float(os.getenv("CROSSOVER_PROB", 0.80))
-MUTATION_RATE_INIT = float(os.getenv("MUTATION_RATE",  0.15))
+POPULATION_SIZE    = int(os.getenv("POPULATION_SIZE",    80))
+MAX_GENERATIONS    = int(os.getenv("MAX_GENERATIONS",   400))
+CROSSOVER_PROB     = float(os.getenv("CROSSOVER_PROB",  0.80))
+MUTATION_RATE_INIT = float(os.getenv("MUTATION_RATE",   0.15))
 ELITISM_COUNT      = max(1, int(POPULATION_SIZE * 0.10))
 TOURNAMENT_SIZE    = 5
 
-W_HARD   = 1_000_000
-W_GINI_W =       500
-W_GINI_R =       300
-W_GINI_A =       400
-W_AC_BON =       100
+W_HARD   = 5_000_000   # must-fix: professor teaches in 2 rooms at once is physically impossible
+W_GINI_W =       400
+W_GINI_R =     1_200   # push equal room usage
+W_GINI_A =       600   # push AC fairness
+W_AC_BON =       200
 
-SCHEDULE_DAYS  = [1, 2, 3, 4, 5]
 SCHEDULE_START = 8
 SCHEDULE_END   = 19
-AC_ROOM_BIAS   = 0.70
+
+AC_ROOM_IDS  = {"322", "324", "326", "328"}
+LAB_ROOM_IDS = {"LAB A", "LAB B", "LAB C", "LAB D"}
+AC_ROOM_BIAS = 0.65
 
 
 def gini(values: list) -> float:
     n = len(values)
-    if n < 2:
-        return 0.0
+    if n < 2: return 0.0
     mean = sum(values) / n
-    if mean == 0:
-        return 0.0
+    if mean == 0: return 0.0
     total = sum(abs(values[i] - values[j]) for i in range(n) for j in range(n))
     return total / (2.0 * n * n * mean)
 
 
-def load_data() -> dict:
+def load_data(week_start: str = None) -> dict:
     professors = database.get_all_professors()
     rooms_raw  = database.get_all_rooms()
-    slots      = database.get_all_timetable_slots()
+    slots      = database.get_all_timetable_slots(week_start=week_start)
 
-    if not professors:
-        raise RuntimeError("No professors in DB.")
-    if not rooms_raw:
-        raise RuntimeError("No rooms in DB.")
-    if not slots:
-        raise RuntimeError("No timetable slots found. Add subjects via Admin panel first.")
+    if not professors: raise RuntimeError("No professors in DB.")
+    if not rooms_raw:  raise RuntimeError("No rooms in DB.")
+    if not slots:      raise RuntimeError("No timetable slots found.")
 
     rooms = []
     for r in rooms_raw:
-        is_lab = str(r.get("room_type", "")).lower() == "laboratory"
-        rooms.append({
-            "id":         str(r["id"]),
-            "is_ac":      False if is_lab else bool(r.get("is_ac", False)),
-            "is_faculty": bool(r.get("is_faculty", False)),
-        })
+        rid = str(r["id"])
+        rooms.append({"id": rid, "is_ac": (rid in AC_ROOM_IDS), "is_faculty": bool(r.get("is_faculty", False))})
 
-    schedulable = [r for r in rooms if not r["is_faculty"]]
-    ac_rooms    = [r for r in schedulable if r["is_ac"]]
+    schedulable  = [r for r in rooms if not r["is_faculty"]]
+    ac_rooms     = [r for r in schedulable if r["is_ac"]]
 
-    if not schedulable:
-        raise RuntimeError("No schedulable rooms found.")
+    if not schedulable: raise RuntimeError("No schedulable rooms found.")
 
     classes = []
     for s in slots:
-        raw_hour  = int(s["hour"])
-        raw_end_v = s.get("end_hour")
-        raw_end   = int(raw_end_v) if raw_end_v else (raw_hour + 1)
-        ai_assign = bool(s.get("ai_assign_time", False))
+        raw_hour = s.get("hour")
+        raw_end  = s.get("end_hour")
+        hour     = int(raw_hour) if raw_hour is not None else None
+        end      = int(raw_end)  if raw_end  is not None else None
 
-        if ai_assign:
-            duration = 1
+        # When hour=null, end_hour stores the DURATION (set by modal)
+        if hour is None and end is not None:
+            duration = max(1, end)
+        elif hour is not None and end is not None:
+            duration = max(1, end - hour)
         else:
-            duration = max(1, raw_end - raw_hour)
+            duration = 1
 
         classes.append({
             "slot_id":      str(s["id"]),
             "professor_id": str(s["professor_id"]),
             "subject":      s.get("subject", "TBA"),
             "needs_ac":     bool(s.get("needs_ac", False)),
-            "ai_assign":    ai_assign,
             "day_of_week":  int(s["day_of_week"]),
-            "start_hour":   raw_hour,
-            "end_hour":     raw_end,
             "duration":     duration,
         })
 
-    return {
-        "rooms":      schedulable,
-        "ac_rooms":   ac_rooms,
-        "classes":    classes,
-        "professors": professors,
-    }
+    return {"rooms": schedulable, "ac_rooms": ac_rooms, "classes": classes, "professors": professors}
 
 
-def pick_room(needs_ac: bool, data: dict) -> dict:
+def pick_room(needs_ac: bool, data: dict, chrom_so_far: list) -> dict:
+    room_hours = defaultdict(float)
+    for g in chrom_so_far:
+        room_hours[g["room_id"]] += g["duration"]
+
     if needs_ac and data["ac_rooms"] and random.random() < AC_ROOM_BIAS:
-        return random.choice(data["ac_rooms"])
-    return random.choice(data["rooms"])
-
-
-def random_gene(cls: dict, data: dict) -> dict:
-    room = pick_room(cls["needs_ac"], data)
-
-    if cls["ai_assign"]:
-        duration = cls["duration"]
-        max_start = max(SCHEDULE_START, SCHEDULE_END - duration)
-        start = random.randint(SCHEDULE_START, max_start)
-        end   = min(start + duration, SCHEDULE_END)
-        day   = cls["day_of_week"]   # respect user's chosen day
+        pool = data["ac_rooms"]
     else:
-        start = cls["start_hour"]
-        end   = cls["end_hour"]
-        day   = cls["day_of_week"]
+        pool = data["rooms"]
 
+    if not pool: return random.choice(data["rooms"])
+
+    max_h   = max((room_hours.get(r["id"], 0) for r in pool), default=0) + 1
+    weights = [max_h - room_hours.get(r["id"], 0) + 1 for r in pool]
+    return random.choices(pool, weights=weights, k=1)[0]
+
+
+def build_conflict_free_chrom(data: dict) -> list:
+    """
+    Greedy initializer: assigns each class a start time that doesn't
+    conflict with any already-placed class for that professor on that day.
+    Resolves the 'same professor, 2 rooms at same time' problem from the start.
+    """
+    chrom: list = []
+    # (day, professor_id) -> list of (start, end) already placed
+    placed: dict = defaultdict(list)
+
+    for cls in data["classes"]:
+        duration  = cls["duration"]
+        day       = cls["day_of_week"]
+        max_start = max(SCHEDULE_START, SCHEDULE_END - duration)
+        candidates = list(range(SCHEDULE_START, max_start + 1))
+        random.shuffle(candidates)
+
+        chosen_start = candidates[0]
+        for s in candidates:
+            proposed = set(range(s, min(s + duration, SCHEDULE_END)))
+            used_hrs = set()
+            for (us, ue) in placed[(day, cls["professor_id"])]:
+                used_hrs.update(range(us, ue))
+            if not proposed.intersection(used_hrs):
+                chosen_start = s
+                break
+
+        chosen_end = min(chosen_start + duration, SCHEDULE_END)
+        placed[(day, cls["professor_id"])].append((chosen_start, chosen_end))
+
+        room = pick_room(cls["needs_ac"], data, chrom)
+        chrom.append({
+            "slot_id":      cls["slot_id"],
+            "professor_id": cls["professor_id"],
+            "needs_ac":     cls["needs_ac"],
+            "day_of_week":  day,
+            "start_hour":   chosen_start,
+            "end_hour":     chosen_end,
+            "room_id":      room["id"],
+            "duration":     duration,
+        })
+    return chrom
+
+
+def random_gene(cls: dict, data: dict, chrom_so_far: list) -> dict:
+    room      = pick_room(cls["needs_ac"], data, chrom_so_far)
+    duration  = cls["duration"]
+    max_start = max(SCHEDULE_START, SCHEDULE_END - duration)
+    start     = random.randint(SCHEDULE_START, max_start)
     return {
         "slot_id":      cls["slot_id"],
         "professor_id": cls["professor_id"],
         "needs_ac":     cls["needs_ac"],
-        "ai_assign":    cls["ai_assign"],
-        "day_of_week":  day,
+        "day_of_week":  cls["day_of_week"],
         "start_hour":   start,
-        "end_hour":     end,
+        "end_hour":     min(start + duration, SCHEDULE_END),
         "room_id":      room["id"],
+        "duration":     duration,
     }
 
 
 def init_population(data: dict) -> list:
-    return [
-        [random_gene(c, data) for c in data["classes"]]
-        for _ in range(POPULATION_SIZE)
-    ]
+    pop = []
+    # 70% start conflict-free, 30% random for diversity
+    for i in range(POPULATION_SIZE):
+        if i < int(POPULATION_SIZE * 0.70):
+            pop.append(build_conflict_free_chrom(data))
+        else:
+            chrom = []
+            for c in data["classes"]:
+                chrom.append(random_gene(c, data, chrom))
+            pop.append(chrom)
+    return pop
 
 
 def hard_violations(chrom: list) -> int:
@@ -140,14 +180,10 @@ def hard_violations(chrom: list) -> int:
         for h in range(g["start_hour"], g["end_hour"]):
             pk = (g["day_of_week"], h, g["professor_id"])
             rk = (g["day_of_week"], h, g["room_id"])
-            if pk in ps:
-                v += 1
-            else:
-                ps.add(pk)
-            if rk in rs:
-                v += 1
-            else:
-                rs.add(rk)
+            if pk in ps: v += 1
+            else: ps.add(pk)
+            if rk in rs: v += 1
+            else: rs.add(rk)
     return v
 
 
@@ -171,29 +207,21 @@ def gini_room_usage(chrom: list, rooms: list) -> float:
 
 def gini_ac_access(chrom: list, room_lookup: dict) -> float:
     all_prof_ids = {g["professor_id"] for g in chrom}
-    if not all_prof_ids:
-        return 0.0
-
+    if not all_prof_ids: return 0.0
     ac_hrs = {pid: 0.0 for pid in all_prof_ids}
     for g in chrom:
-        pid = g["professor_id"]
         if room_lookup.get(g["room_id"], {}).get("is_ac"):
-            ac_hrs[pid] += g["end_hour"] - g["start_hour"]
-
-    profs_needing_ac = {g["professor_id"] for g in chrom if g["needs_ac"]}
-    if not profs_needing_ac:
-        return 0.0
-
-    return gini([ac_hrs[pid] for pid in profs_needing_ac])
+            ac_hrs[g["professor_id"]] += g["end_hour"] - g["start_hour"]
+    return gini(list(ac_hrs.values()))
 
 
 def fitness(chrom: list, data: dict) -> tuple:
-    rl  = {r["id"]: r for r in data["rooms"]}
-    hv  = hard_violations(chrom)
-    gw  = gini_workload(chrom, data["professors"])
-    gr  = gini_room_usage(chrom, data["rooms"])
-    ga  = gini_ac_access(chrom, rl)
-    bon = sum(1 for g in chrom if g["needs_ac"] and rl.get(g["room_id"], {}).get("is_ac"))
+    rl    = {r["id"]: r for r in data["rooms"]}
+    hv    = hard_violations(chrom)
+    gw    = gini_workload(chrom, data["professors"])
+    gr    = gini_room_usage(chrom, data["rooms"])
+    ga    = gini_ac_access(chrom, rl)
+    bon   = sum(1 for g in chrom if g["needs_ac"] and rl.get(g["room_id"], {}).get("is_ac"))
     score = -W_HARD * hv - W_GINI_W * gw - W_GINI_R * gr - W_GINI_A * ga + W_AC_BON * bon
     return score, hv, gw, gr, ga
 
@@ -207,35 +235,69 @@ def crossover(p1: list, p2: list) -> tuple:
     c1, c2 = [], []
     for g1, g2 in zip(p1, p2):
         if random.random() < 0.5:
-            c1.append(g1.copy())
-            c2.append(g2.copy())
+            c1.append(g1.copy()); c2.append(g2.copy())
         else:
-            c1.append(g2.copy())
-            c2.append(g1.copy())
+            c1.append(g2.copy()); c2.append(g1.copy())
     return c1, c2
 
 
+def repair(chrom: list) -> list:
+    """
+    Post-crossover/mutation repair: if two genes for the same professor
+    overlap on the same day, shift the later one to a non-conflicting slot.
+    """
+    placed: dict = defaultdict(list)   # (day, prof_id) -> [(start, end, idx)]
+    result = [g.copy() for g in chrom]
+
+    for i, g in enumerate(result):
+        day      = g["day_of_week"]
+        pid      = g["professor_id"]
+        duration = g["duration"]
+        start    = g["start_hour"]
+        end      = g["end_hour"]
+
+        # Check conflict with already-placed genes for this professor today
+        used = set()
+        for (us, ue, _) in placed[(day, pid)]:
+            used.update(range(us, ue))
+
+        proposed = set(range(start, end))
+        if proposed.intersection(used):
+            # Find a free slot
+            max_start = max(SCHEDULE_START, SCHEDULE_END - duration)
+            options   = list(range(SCHEDULE_START, max_start + 1))
+            random.shuffle(options)
+            for s in options:
+                if not set(range(s, min(s + duration, SCHEDULE_END))).intersection(used):
+                    result[i]["start_hour"] = s
+                    result[i]["end_hour"]   = min(s + duration, SCHEDULE_END)
+                    break
+
+        new_start = result[i]["start_hour"]
+        new_end   = result[i]["end_hour"]
+        placed[(day, pid)].append((new_start, new_end, i))
+
+    return result
+
+
 def mutate(chrom: list, rate: float, data: dict) -> list:
-    cls_lookup = {c["slot_id"]: c for c in data["classes"]}
     result = []
     for gene in chrom:
         g = gene.copy()
         if random.random() < rate:
-            g["room_id"] = pick_room(g["needs_ac"], data)["id"]
-        if g.get("ai_assign") and random.random() < rate:
-            cls      = cls_lookup.get(g["slot_id"])
-            duration = cls["duration"] if cls else 1
+            g["room_id"] = pick_room(g["needs_ac"], data, result)["id"]
+        if random.random() < rate:
+            duration  = g["duration"]
             max_start = max(SCHEDULE_START, SCHEDULE_END - duration)
-            start    = random.randint(SCHEDULE_START, max_start)
+            start     = random.randint(SCHEDULE_START, max_start)
             g["start_hour"] = start
             g["end_hour"]   = min(start + duration, SCHEDULE_END)
-            # day_of_week is intentionally left unchanged
         result.append(g)
-    return result
+    return repair(result)
 
 
-def run_genetic_algorithm() -> dict:
-    data = load_data()
+def run_genetic_algorithm(week_start: str = None) -> dict:
+    data = load_data(week_start=week_start)
     pop  = init_population(data)
 
     best_chrom = None
@@ -258,17 +320,16 @@ def run_genetic_algorithm() -> dict:
         else:
             no_improve += 1
 
-        if no_improve >= 20:
-            rate = min(rate * 1.3, 0.50)
+        if no_improve >= 25:
+            rate = min(rate * 1.3, 0.55)
             no_improve = 0
 
         if gen % 20 == 0 or gen == MAX_GENERATIONS - 1:
-            print(
-                f"Gen {gen:03d} | Fit {best_fit:>13.0f} | "
-                f"Violations {best_hv} | "
-                f"Gini W:{best_gw:.3f} R:{best_gr:.3f} AC:{best_ga:.3f} | "
-                f"rate={rate:.3f}"
-            )
+            print(f"Gen {gen:03d} | Fit {best_fit:>13.0f} | HV {best_hv} | Gini W:{best_gw:.3f} R:{best_gr:.3f} AC:{best_ga:.3f} | rate={rate:.3f}")
+
+        if best_hv == 0 and best_gr < 0.05:
+            print(f"Early stop at gen {gen}")
+            break
 
         elite_idx = sorted(range(len(pop)), key=lambda i: fits[i], reverse=True)
         new_pop   = [pop[i] for i in elite_idx[:ELITISM_COUNT]]
@@ -278,26 +339,19 @@ def run_genetic_algorithm() -> dict:
             if random.random() < CROSSOVER_PROB:
                 c1, c2 = crossover(p1, p2)
             else:
-                c1 = [g.copy() for g in p1]
-                c2 = [g.copy() for g in p2]
+                c1 = [g.copy() for g in p1]; c2 = [g.copy() for g in p2]
             new_pop.append(mutate(c1, rate, data))
             if len(new_pop) < POPULATION_SIZE:
                 new_pop.append(mutate(c2, rate, data))
-
         pop = new_pop
 
     soft_score = -(best_gw + best_gr + best_ga)
-
     sched_id, err = database.save_generated_schedule(
-        fitness_score   = float(best_fit),
-        hard_violations = int(best_hv),
-        soft_score      = float(soft_score),
-        gini_workload   = float(best_gw),
-        gini_room_usage = float(best_gr),
-        gini_ac_access  = float(best_ga),
-        notes           = f"GA pop={POPULATION_SIZE} gen={MAX_GENERATIONS} slots={len(data['classes'])} violations={best_hv}",
+        fitness_score=float(best_fit), hard_violations=int(best_hv),
+        soft_score=float(soft_score), gini_workload=float(best_gw),
+        gini_room_usage=float(best_gr), gini_ac_access=float(best_ga),
+        notes=f"GA pop={POPULATION_SIZE} gen={MAX_GENERATIONS} slots={len(data['classes'])} hv={best_hv}",
     )
-
     if err:
         print(f"save_generated_schedule failed: {err}")
         return {"error": err}

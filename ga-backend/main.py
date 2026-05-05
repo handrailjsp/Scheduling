@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import database
 from ga_engine import run_genetic_algorithm
 
-app = FastAPI(title="EQ-Schedule API", version="3.0")
+app = FastAPI(title="EQ-Schedule API", version="4.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -24,59 +24,46 @@ async def health():
     professors = database.get_all_professors()
     rooms      = database.get_all_rooms()
     slots      = database.get_all_timetable_slots()
-
     issues = []
-    if not professors:
-        issues.append("No professors found")
-    if not rooms:
-        issues.append("No rooms found")
-    if not slots:
-        issues.append("No timetable slots — add subjects via Admin first")
-
+    if not professors: issues.append("No professors found")
+    if not rooms:      issues.append("No rooms found")
+    if not slots:      issues.append("No timetable slots")
     return {
         "status":           "ready" if not issues else "not_ready",
         "issues":           issues,
         "professors_count": len(professors),
         "rooms_count":      len(rooms),
         "slots_count":      len(slots),
-        "professors":       [{"id": str(p["id"]), "name": p["name"]} for p in professors],
-        "rooms":            [{"id": r["id"], "is_ac": r.get("is_ac")} for r in rooms],
     }
 
 
 @app.get("/api/timetable")
-async def get_timetable():
-    return database.get_timetable_slots()
+async def get_timetable(week_start: str = None):
+    return database.get_timetable_slots(week_start=week_start)
 
 
 @app.get("/api/schedules")
 async def get_schedules():
     try:
-        res = (
-            database.supabase
-            .table("generated_schedules")
-            .select("*")
-            .order("created_at", desc=True)
-            .execute()
-        )
+        res = database.supabase.table("generated_schedules").select("*").order("created_at", desc=True).execute()
         return {"success": True, "data": res.data}
     except Exception as e:
         return {"success": False, "message": str(e), "data": []}
 
 
 @app.post("/api/generate-schedule")
-async def generate_schedule(runs: int = 1):
-    slots = database.get_all_timetable_slots()
+async def generate_schedule(runs: int = 1, week_start: str = None):
+    slots = database.get_all_timetable_slots(week_start=week_start)
     if not slots:
         raise HTTPException(
             status_code=400,
-            detail="No timetable slots found. Add subjects via Admin panel first."
+            detail="No timetable slots found for this week. Add subjects first."
         )
 
     best_result = None
     for run_num in range(max(1, runs)):
-        print(f"\n>>> GA Run {run_num + 1} / {runs}")
-        result = run_genetic_algorithm()
+        print(f"\n>>> GA Run {run_num + 1}/{runs} | week_start={week_start}")
+        result = run_genetic_algorithm(week_start=week_start)
         if "error" in result:
             print(f"    Run failed: {result['error']}")
             continue

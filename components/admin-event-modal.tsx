@@ -5,7 +5,15 @@ import { useState, useEffect } from "react"
 import { X, Clock, AlertCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
-import type { CalendarEvent } from "@/app/page"
+
+interface CalendarEvent {
+  id: string
+  title: string
+  description: string
+  startTime: Date
+  endTime: Date
+  hex: string
+}
 
 interface AdminEventModalProps {
   event?: CalendarEvent | null
